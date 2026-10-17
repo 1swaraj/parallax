@@ -1,0 +1,27 @@
+{
+  "name": "lens-monad-client",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "packageManager": "pnpm@10.27.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "chain": "bash scripts/dev-chain.sh",
+    "sync:contracts": "node scripts/sync-contracts.mjs",
+    "indexer": "pnpm --filter @lens-monad/indexer dev",
+    "web": "pnpm --filter @lens-monad/web dev",
+    "test": "pnpm -r --if-present test",
+    "test:e2e": "pnpm --filter @lens-monad/protocol test:e2e",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "seed": "node --import tsx scripts/seed.ts",
+    "seed:likes": "node --import tsx scripts/seed.ts --likes"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.0",
+    "tsx": "^4.23.15",
+    "viem": "^2.57.4"
+  }
+}

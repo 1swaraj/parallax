@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.ponder/
+generated/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+.DS_Store
+.anvil/
+*.log
+.next*/
+.claude/

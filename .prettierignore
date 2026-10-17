@@ -1,0 +1,5 @@
+packages/protocol/src/abis/
+packages/protocol/deployments/
+apps/indexer/ponder-env.d.ts
+apps/web/next-env.d.ts
+pnpm-lock.yaml

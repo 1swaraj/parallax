@@ -1,0 +1,34 @@
+{
+  "name": "@lens-monad/web",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "test": "vitest run --exclude \"test/**/*.e2e.test.ts\" --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "vitest run e2e.test.ts"
+  },
+  "dependencies": {
+    "@lens-monad/protocol": "workspace:*",
+    "@tanstack/react-query": "^5.90.0",
+    "iron-session": "^8.0.0",
+    "next": "^16.0.0",
+    "postgres": "^3.4.9",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "viem": "^2.40.0",
+    "wagmi": "^3.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

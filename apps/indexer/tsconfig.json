@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    // The e2e test runs with @lens-monad/protocol's vitest (see test:e2e): the indexer doesn't depend on it.
+    "paths": { "vitest": ["../../packages/protocol/node_modules/vitest"] }
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["node_modules", ".ponder"]
+}

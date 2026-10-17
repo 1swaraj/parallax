@@ -1,0 +1,319 @@
+@import 'tailwindcss';
+
+/*
+ * MDS-2026, Monad's design system (github.com/monad-exp/design.md): its semantic tokens, light by default, dark
+ * under `.dark` on <html>. Components use these tokens only, never raw values.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@font-face {
+  font-family: 'Britti Sans';
+  src: url('/fonts/britti-sans-variable.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --bg-default: #fbfaf9;
+  --bg-subtle: #f4f4f8;
+  --bg-elevated: #ffffff;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-pressed: rgba(0, 0, 0, 0.08);
+  --bg-inverse: #26262b;
+
+  --text-primary: #26262b;
+  --text-secondary: #565666;
+  --text-tertiary: #727285;
+  --text-disabled: #aaaabf;
+  --text-accent: #6e54ff;
+  --text-inverse: #ffffff;
+  --text-on-accent: #ffffff;
+
+  --border-default: #e9e9f5;
+  --border-hover: #dadae8;
+  --border-strong: #aaaabf;
+  --border-focus: #6e54ff;
+
+  --accent-primary: #6e54ff;
+  --accent-hover: #5740d6;
+  --accent-pressed: #4230aa;
+  --accent-subtle: #f0eeff;
+
+  --status-success-fg: #15803d;
+  --status-success-bg: #ebf8f0;
+  --status-warning-fg: #a16207;
+  --status-warning-bg: #fff8ec;
+  --status-error-fg: #b91c1c;
+  --status-error-bg: #fff3f4;
+  --status-info-fg: #1d4ed8;
+  --status-info-bg: #eff6ff;
+
+  --motion-duration-fast: 150ms;
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Buttons: fixed fills with crossfading radial washes (MDS button effect tokens). */
+  --button-shadow-ambient: rgba(0, 0, 0, 0.2);
+  --button-primary-bg: #6e54ff;
+  --button-primary-text: #ffffff;
+  --button-primary-pressed: #4230aa;
+  --button-primary-border: #4f47ebe6;
+  --button-primary-border-hover: #4f47eb80;
+  --button-primary-highlight: #ffffff40;
+  --button-primary-highlight-hover: #ffffffcc;
+  --button-primary-gradient: radial-gradient(
+    ellipse 50% 50% at 50% 50%,
+    rgba(110, 84, 255, 0) 0%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  --button-primary-gradient-hover: radial-gradient(
+    ellipse 50% 50% at 50% 50%,
+    rgba(110, 84, 255, 1) 29.808%,
+    rgba(146, 127, 255, 0.9375) 47.356%,
+    rgba(183, 170, 255, 0.875) 64.904%,
+    rgba(219, 212, 255, 0.8125) 82.452%,
+    rgba(255, 255, 255, 0.75) 100%
+  );
+  --button-primary-shadow:
+    0 1px 2px 0 var(--button-shadow-ambient), 0 0 0 1px var(--button-primary-border),
+    inset 0 1px 0.5px 0 var(--button-primary-highlight),
+    inset 0 -1px 0.5px 0 var(--button-primary-highlight);
+  --button-primary-shadow-hover:
+    0 1px 2px 0 var(--button-shadow-ambient), 0 0 0 1px var(--button-primary-border-hover),
+    inset 0 0.75px 0.66px 0 var(--button-primary-highlight-hover),
+    inset 0 -0.75px 0.66px 0 var(--button-primary-highlight-hover);
+
+  --button-secondary-bg: #fbfaf9;
+  --button-secondary-bg-pressed: #f0f0f5;
+  --button-secondary-gradient: radial-gradient(
+    ellipse 50% 50% at 50% 50%,
+    #fafafa 0%,
+    rgba(183, 183, 183, 0.56) 50%,
+    rgba(115, 115, 115, 0.12) 100%
+  );
+  --button-secondary-gradient-opacity: 0.33;
+  --button-secondary-gradient-hover-opacity: 0.85;
+  --button-secondary-shadow:
+    0 1px 2px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 0 #fff, inset 0 -1px 0 0 #fff,
+    0 0 0 1px rgba(0, 0, 0, 0.07);
+
+  --button-destructive-bg: #dc2626;
+  --button-destructive-text: #ffffff;
+  --button-destructive-pressed: #991b1b;
+  --button-destructive-border: #dc2626e6;
+  --button-destructive-border-hover: #dc262680;
+  --button-destructive-gradient-hover: radial-gradient(
+    ellipse 50% 50% at 50% 50%,
+    rgba(220, 38, 38, 1) 29.808%,
+    rgba(229, 92, 92, 0.9375) 47.356%,
+    rgba(238, 147, 147, 0.875) 64.904%,
+    rgba(246, 201, 201, 0.8125) 82.452%,
+    rgba(255, 255, 255, 0.75) 100%
+  );
+  --button-destructive-shadow:
+    0 1px 2px 0 var(--button-shadow-ambient), 0 0 0 1px var(--button-destructive-border),
+    inset 0 1px 0.5px 0 var(--button-primary-highlight),
+    inset 0 -1px 0.5px 0 var(--button-primary-highlight);
+  --button-destructive-shadow-hover:
+    0 1px 2px 0 var(--button-shadow-ambient), 0 0 0 1px var(--button-destructive-border-hover),
+    inset 0 0.75px 0.66px 0 var(--button-primary-highlight-hover),
+    inset 0 -0.75px 0.66px 0 var(--button-primary-highlight-hover);
+
+  --button-ghost-text-hover: #727285;
+
+  /* Provisional floating-surface shadow and modal scrim (MDS known gap: effects aren't tokenized yet). */
+  --shadow-float: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --overlay: rgba(38, 38, 43, 0.4);
+  /* monad.xyz's page texture: a 1px dot grid behind the content rail. */
+  --dot: rgba(10, 10, 10, 0.08);
+
+  color-scheme: light;
+}
+
+.dark {
+  --bg-default: #000000;
+  --bg-subtle: #0f0f12;
+  --bg-elevated: #16161a;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-pressed: rgba(255, 255, 255, 0.1);
+  --bg-inverse: #ffffff;
+
+  --text-primary: #fbfaf9;
+  --text-secondary: #c7c7d6;
+  --text-tertiary: #aaaabf;
+  --text-disabled: #727285;
+  --text-accent: #8270ff;
+  --text-inverse: #000000;
+
+  --border-default: #26262b;
+  --border-hover: #353542;
+  --border-strong: #565666;
+  --border-focus: #8270ff;
+
+  --accent-subtle: #1c1449;
+
+  --status-success-fg: #86efac;
+  --status-success-bg: #0e1f14;
+  --status-warning-fg: #facc15;
+  --status-warning-bg: #201a11;
+  --status-error-fg: #f87171;
+  --status-error-bg: #1c1213;
+  --status-info-fg: #60a5fa;
+  --status-info-bg: #111827;
+
+  --button-shadow-ambient: rgba(0, 0, 0, 0.4);
+  --button-ghost-text-hover: #9d9db2;
+  --button-secondary-bg: #000000;
+  --button-secondary-bg-pressed: #0a0a0a;
+  --button-secondary-gradient: radial-gradient(
+    ellipse 50% 50% at 50% 50%,
+    rgba(23, 23, 23, 1) 0%,
+    rgba(58, 58, 58, 0.95) 25%,
+    rgba(93, 93, 93, 0.9) 50%,
+    rgba(128, 128, 128, 0.85) 75%,
+    rgba(163, 163, 163, 0.8) 100%
+  );
+  --button-secondary-gradient-opacity: 0.2;
+  --button-secondary-gradient-hover-opacity: 0.66;
+  --button-secondary-shadow:
+    0 1px 2px 0 rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.14),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 0 rgba(255, 255, 255, 0.25);
+
+  --shadow-float: 0 4px 16px rgba(0, 0, 0, 0.6);
+  --overlay: rgba(53, 53, 66, 0.55);
+  --dot: rgba(255, 255, 255, 0.09);
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg-default: var(--bg-default);
+  --color-bg-subtle: var(--bg-subtle);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-pressed: var(--bg-pressed);
+  --color-bg-inverse: var(--bg-inverse);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-disabled: var(--text-disabled);
+  --color-text-accent: var(--text-accent);
+  --color-text-inverse: var(--text-inverse);
+  --color-text-on-accent: var(--text-on-accent);
+
+  --color-border-default: var(--border-default);
+  --color-border-hover: var(--border-hover);
+  --color-border-strong: var(--border-strong);
+  --color-border-focus: var(--border-focus);
+
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-pressed: var(--accent-pressed);
+  --color-accent-subtle: var(--accent-subtle);
+
+  --color-status-success: var(--status-success-fg);
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-warning: var(--status-warning-fg);
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-error: var(--status-error-fg);
+  --color-status-error-bg: var(--status-error-bg);
+  --color-status-info: var(--status-info-fg);
+  --color-status-info-bg: var(--status-info-bg);
+
+  --font-display: 'Britti Sans', var(--font-inter), system-ui, sans-serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-roboto-mono), ui-monospace, monospace;
+
+  --shadow-float: var(--shadow-float);
+  --color-overlay: var(--overlay);
+}
+
+html {
+  background: var(--bg-default);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scrollbar-gutter: stable;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  text-wrap: balance;
+}
+
+::selection {
+  background: var(--accent-subtle);
+  color: var(--text-primary);
+}
+
+/* Eyebrows and metadata: system speaking (MDS .mono-caps). */
+@utility dot-grid {
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 0);
+  background-size: 16px 16px;
+}
+
+@utility mono-caps {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* The `border/focus` ring, shown without an entrance. */
+@utility focus-ring {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  &:focus-visible {
+    outline-color: var(--border-focus);
+  }
+}
+
+@keyframes float-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Floating surfaces enter with opacity and a 4px rise (MDS motion). */
+@utility animate-float {
+  animation: float-in 180ms var(--motion-ease-out);
+}
+
+@keyframes indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@utility animate-indeterminate {
+  animation: indeterminate 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

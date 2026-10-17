@@ -1,0 +1,23 @@
+{
+  "name": "@lens-monad/indexer",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "dev": "ponder dev",
+    "start": "ponder start",
+    "codegen": "ponder codegen",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "pnpm --filter @lens-monad/protocol exec vitest run --root ../../apps/indexer --testTimeout 60000 test/api.e2e.test.ts"
+  },
+  "dependencies": {
+    "@lens-monad/protocol": "workspace:*",
+    "hono": "^4.10.0",
+    "ponder": "^0.18.0",
+    "viem": "^2.40.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.3"
+  }
+}

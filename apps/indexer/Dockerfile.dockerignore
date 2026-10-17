@@ -1,0 +1,10 @@
+# BuildKit reads <Dockerfile>.dockerignore over the context's .dockerignore. Paths are relative to the repository root.
+**/node_modules
+**/.ponder
+**/generated
+**/.next
+**/.env
+**/.env.local
+**/*.log
+.git
+.anvil

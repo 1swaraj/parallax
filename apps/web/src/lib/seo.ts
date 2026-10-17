@@ -1,0 +1,56 @@
+import type { ProfileView, ThreadView } from '@lens-monad/protocol';
+import type { Metadata } from 'next';
+import { APP_NAME } from './brand';
+
+const indexerUrl = (process.env.INDEXER_URL ?? 'http://127.0.0.1:42069').replace(/\/+$/, '');
+
+/** Server-side reads for link previews. Failures just mean a generic preview. */
+async function fetchIndexer<T>(path: string): Promise<T | null> {
+  try {
+    const response = await fetch(`${indexerUrl}${path}`, { next: { revalidate: 60 } });
+    return response.ok ? ((await response.json()) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function excerpt(text: string, length = 160) {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > length ? `${flat.slice(0, length - 1)}…` : flat;
+}
+
+export async function profileMetadata(handle: string): Promise<Metadata> {
+  const profile = await fetchIndexer<ProfileView>(`/accounts/${encodeURIComponent(handle)}`);
+  if (!profile) {
+    return { title: 'Profile' };
+  }
+  const { account } = profile;
+  const name = account.name || account.username || account.address;
+  const title = account.username ? `${name} (@${account.username})` : name;
+  const description = account.bio
+    ? excerpt(account.bio)
+    : `${title} on ${APP_NAME}, a Lens app on Monad.`;
+  return {
+    title,
+    description,
+    openGraph: { title, description, type: 'profile' },
+    twitter: { title, description },
+  };
+}
+
+export async function postMetadata(id: string): Promise<Metadata> {
+  const thread = await fetchIndexer<ThreadView>(`/posts/${encodeURIComponent(id)}`);
+  if (!thread || thread.post.deleted) {
+    return { title: 'Post' };
+  }
+  const { post } = thread;
+  const name = post.author.name || post.author.username || post.author.address;
+  const title = `${name} on ${APP_NAME}`;
+  const description = post.content ? excerpt(post.content) : `A post by ${name}.`;
+  return {
+    title: post.content ? `${name}: "${excerpt(post.content, 60)}"` : title,
+    description,
+    openGraph: { title, description, type: 'article' },
+    twitter: { title, description },
+  };
+}

@@ -1,0 +1,6 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Only install versions published at least 7 days ago (in minutes), as a supply-chain safeguard.
+minimumReleaseAge: 10080
