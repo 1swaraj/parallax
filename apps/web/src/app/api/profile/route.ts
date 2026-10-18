@@ -10,7 +10,7 @@ import { sponsoredAccount } from '@/lib/server/sponsor';
 
 export const maxDuration = 60;
 
-/** Updates the session Account's profile through SponsorRouter.setMetadataURI. */
+/** Updates the session Account's default profile through SponsorRouter.setMetadataURI, with no app's source stamp. */
 export async function POST(request: Request) {
   return handle(async () => {
     assertSponsorshipAvailable();
