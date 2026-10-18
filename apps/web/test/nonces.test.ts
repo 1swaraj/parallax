@@ -3,7 +3,8 @@
 
 import { keccak256, toHex, type Address, type Hex } from 'viem';
 import { afterAll, describe, expect, it } from 'vitest';
-import type { Sql } from '../src/lib/server/db';
+import { connect, type Sql } from '../src/lib/server/db';
+import { HttpError } from '../src/lib/server/guard';
 import {
   MAX_AHEAD,
   MAX_ATTEMPTS,
@@ -77,7 +78,7 @@ const stores: { name: string; enabled: boolean; create: () => NonceStore }[] = [
   {
     name: 'postgres',
     enabled: !!TEST_DATABASE_URL,
-    create: () => postgresNonceStore((sql ??= testDatabase()), randomChainId()),
+    create: () => postgresNonceStore(() => (sql ??= testDatabase()), randomChainId()),
   },
 ];
 
@@ -209,6 +210,54 @@ describe.each(stores)('nonce allocation, $name store', ({ enabled, create }) => 
     await Promise.all(sends);
     expect([...a.pool.keys()].sort()).toEqual([0, 1, 2, 3, 4]);
     expect([...b.pool.keys()].sort()).toEqual([0, 1, 2, 3, 4]);
+  });
+});
+
+describe.skipIf(!TEST_DATABASE_URL)('postgres nonce store, within an instance', () => {
+  /** A request that takes `relayer`'s lock and holds it until `done` resolves. */
+  function hold(store: NonceStore, relayer: Address, done: Promise<void>) {
+    return store.locked(relayer, async () => {
+      await done;
+      return { value: null };
+    });
+  }
+
+  it("keeps requests queued on a busy relayer from taking another relayer's connection", async () => {
+    // One connection per relayer, as nonceDatabase() sizes it.
+    const pool = connect(TEST_DATABASE_URL!, 2);
+    try {
+      const store = postgresNonceStore(() => pool, randomChainId());
+      const [busy, other] = [randomAddress(), randomAddress()];
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => (finish = resolve));
+      const queued = Array.from({ length: 4 }, () => hold(store, busy, done));
+      const otherSent = await store.locked(other, async () => ({ value: 'sent' }));
+      expect(otherSent).toBe('sent');
+      finish();
+      await Promise.all(queued);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it('gives up with a 503 when the relayer stays busy', async () => {
+    const pool = connect(TEST_DATABASE_URL!, 2);
+    try {
+      const store = postgresNonceStore(() => pool, randomChainId(), 200);
+      const relayer = randomAddress();
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => (finish = resolve));
+      const holder = hold(store, relayer, done);
+      const waiter = store.locked(relayer, async () => ({ value: 'late' }));
+      await expect(waiter).rejects.toBeInstanceOf(HttpError);
+      await expect(waiter).rejects.toMatchObject({ status: 503 });
+      finish();
+      await holder;
+      // The queue moves on past the request that gave up.
+      expect(await store.locked(relayer, async () => ({ value: 'next' }))).toBe('next');
+    } finally {
+      await pool.end();
+    }
   });
 });
 

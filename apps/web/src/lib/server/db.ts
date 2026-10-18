@@ -1,5 +1,5 @@
 import postgres from 'postgres';
-import { databaseUrl, numberEnv } from './env';
+import { databaseUrl, numberEnv, relayerKeys } from './env';
 
 export type Sql = postgres.Sql<{ bigint: bigint }>;
 
@@ -25,6 +25,17 @@ export function database(): Sql | null {
     client = url ? connect(url) : null;
   }
   return client;
+}
+
+let nonceClient: Sql | undefined;
+
+/**
+ * The relayers' nonce locks get their own pool, one connection per relayer (postgresNonceStore), so that requests
+ * queued on a busy relayer can't take the connections everything else needs. Only where DATABASE_URL is set.
+ */
+export function nonceDatabase(): Sql {
+  nonceClient ??= connect(databaseUrl()!, relayerKeys().length);
+  return nonceClient;
 }
 
 // The app's tables live in their own schema, so they can share the indexer's database.

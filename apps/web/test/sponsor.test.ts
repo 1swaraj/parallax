@@ -184,6 +184,9 @@ describe('the gas cap', () => {
   it('lets one under the cap through', async () => {
     const { fees } = fakeChain(1_300_000n);
     await expect(sendAsRelayer(call, me, 1_500_000n)).rejects.toThrow('past the cap');
-    expect(fees).toHaveBeenCalled();
+    // Fee caps at twice the base fee, so a rising base fee doesn't strand the relayer's queue.
+    expect(fees).toHaveBeenCalledWith({
+      chain: expect.objectContaining({ fees: expect.objectContaining({ baseFeeMultiplier: 2 }) }),
+    });
   });
 });

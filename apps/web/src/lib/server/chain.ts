@@ -25,6 +25,13 @@ export const publicClient = createPublicClient({
   pollingInterval: IS_LOCAL ? 250 : 400,
 });
 
+/**
+ * Fee caps at twice the base fee, not viem's 1.2x: a transaction whose cap the base fee rises past is stuck, and every
+ * later one from its relayer waits behind it until the nonces are reused (STALL_MS). A transaction pays the base fee
+ * plus its tip, not its cap, so the headroom costs nothing.
+ */
+const feeChain = { ...chain, fees: { ...chain.fees, baseFeeMultiplier: 2 } };
+
 // Routes have 60s (maxDuration): past this, the action is reported as pending rather than cut off by the platform.
 const RECEIPT_TIMEOUT_MS = 30_000;
 
@@ -59,7 +66,7 @@ export async function sendAsRelayer<const abi extends Abi>(
       'This action needs more gas than the app sponsors. Pay the gas from your wallet (Settings).'
     );
   }
-  const fees = await publicClient.estimateFeesPerGas();
+  const fees = await publicClient.estimateFeesPerGas({ chain: feeChain });
   const transaction = {
     chainId: chain.id,
     type: 'eip1559' as const,
