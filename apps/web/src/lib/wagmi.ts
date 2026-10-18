@@ -2,6 +2,7 @@ import { createConfig, createConnector, http, type CreateConnectorFn } from 'wag
 import { injected, walletConnect } from 'wagmi/connectors';
 import { APP_DESCRIPTION, APP_NAME } from './brand';
 import { chain } from './config';
+import { passkeyConnectors } from './passkey';
 
 const WALLETCONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
 
@@ -49,7 +50,14 @@ function walletConnectConnector(): CreateConnectorFn[] {
 
 export const wagmiConfig = createConfig({
   chains: [chain],
-  connectors: [injected(), ...walletConnectConnector()],
+  connectors: [
+    injected(),
+    // Passkey accounts, in browsers with WebAuthn, unless NEXT_PUBLIC_PASSKEYS is false.
+    ...(process.env.NEXT_PUBLIC_PASSKEYS !== 'false' && typeof PublicKeyCredential === 'function'
+      ? passkeyConnectors()
+      : []),
+    ...walletConnectConnector(),
+  ],
   transports: { [chain.id]: http() },
   ssr: true,
 });

@@ -6,52 +6,10 @@
 //
 // Needs playwright-core (PLAYWRIGHT_CORE to point at an install) and a Chromium (CHROMIUM_PATH).
 
-import fs from 'node:fs';
-import path from 'node:path';
+import { APP, open, RPC_URL } from './harness.mjs';
 
-const APP = process.env.APP_URL ?? 'http://localhost:3000';
-const SHOTS = path.resolve(process.env.SHOTS_DIR ?? './shots');
-const RPC_URL = process.env.RPC_URL ?? 'http://127.0.0.1:8545';
-const { chromium } = await import(process.env.PLAYWRIGHT_CORE ?? 'playwright-core');
 const { generatePrivateKey, privateKeyToAccount } = await import('viem/accounts');
 
-fs.mkdirSync(SHOTS, { recursive: true });
-const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH,
-  // A single process: some sandboxes refuse Chromium's helper processes.
-  args: ['--single-process', '--no-sandbox', '--disable-gpu'],
-  // Behind an authenticating proxy (e.g. a sandbox), external images (avatars) load through it.
-  ...(process.env.HTTPS_PROXY
-    ? (() => {
-        const proxy = new URL(process.env.HTTPS_PROXY);
-        return {
-          proxy: {
-            server: `${proxy.protocol}//${proxy.host}`,
-            username: decodeURIComponent(proxy.username),
-            password: decodeURIComponent(proxy.password),
-            bypass: 'localhost,127.0.0.1',
-          },
-        };
-      })()
-    : {}),
-});
-
-const failures = [];
-const step = async (name, fn) => {
-  const started = Date.now();
-  try {
-    await fn();
-    console.log(`✓ ${name} (${Date.now() - started}ms)`);
-  } catch (error) {
-    failures.push(name);
-    await page
-      .screenshot({ path: path.join(SHOTS, `fail-${failures.length}.png`) })
-      .catch(() => {});
-    console.log(`✗ ${name}: ${error.message.split('\n')[0]}`);
-  }
-};
-
-const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 const wallet = privateKeyToAccount(generatePrivateKey());
 const chainId = await rpc('eth_chainId', []);
 
@@ -68,50 +26,46 @@ async function rpc(method, params) {
   return body.result;
 }
 
-// The wallet's side of window.ethereum's requests. Errors go back as values: thrown ones lose their code on the way.
-await context.exposeFunction('testWalletRequest', async (method, params = []) => {
-  try {
-    switch (method) {
-      case 'eth_requestAccounts':
-      case 'eth_accounts':
-        return { result: [wallet.address] };
-      case 'eth_chainId':
-        return { result: chainId };
-      case 'personal_sign':
-        return { result: await wallet.signMessage({ message: { raw: params[0] } }) };
-      case 'wallet_switchEthereumChain':
-        return params[0]?.chainId === chainId
-          ? { result: null }
-          : { error: { code: 4902, message: 'Unknown chain' } };
-      default:
-        if (method.startsWith('wallet_') || method.startsWith('eth_sign')) {
-          return { error: { code: 4200, message: `${method} is not supported` } };
-        }
-        return { result: await rpc(method, params) };
-    }
-  } catch (error) {
-    return { error: { code: error.code ?? -32603, message: error.message } };
-  }
-});
-await context.addInitScript(() => {
-  window.ethereum = {
-    async request({ method, params }) {
-      const { result, error } = await window.testWalletRequest(method, params);
-      if (error) {
-        throw Object.assign(new Error(error.message), error);
+const { page, shot, step, finish } = await open(async (context) => {
+  // The wallet's side of window.ethereum's requests. Errors go back as values: thrown ones lose their code on the way.
+  await context.exposeFunction('testWalletRequest', async (method, params = []) => {
+    try {
+      switch (method) {
+        case 'eth_requestAccounts':
+        case 'eth_accounts':
+          return { result: [wallet.address] };
+        case 'eth_chainId':
+          return { result: chainId };
+        case 'personal_sign':
+          return { result: await wallet.signMessage({ message: { raw: params[0] } }) };
+        case 'wallet_switchEthereumChain':
+          return params[0]?.chainId === chainId
+            ? { result: null }
+            : { error: { code: 4902, message: 'Unknown chain' } };
+        default:
+          if (method.startsWith('wallet_') || method.startsWith('eth_sign')) {
+            return { error: { code: 4200, message: `${method} is not supported` } };
+          }
+          return { result: await rpc(method, params) };
       }
-      return result;
-    },
-    on() {},
-    removeListener() {},
-  };
+    } catch (error) {
+      return { error: { code: error.code ?? -32603, message: error.message } };
+    }
+  });
+  await context.addInitScript(() => {
+    window.ethereum = {
+      async request({ method, params }) {
+        const { result, error } = await window.testWalletRequest(method, params);
+        if (error) {
+          throw Object.assign(new Error(error.message), error);
+        }
+        return result;
+      },
+      on() {},
+      removeListener() {},
+    };
+  });
 });
-
-const page = await context.newPage();
-const errors = [];
-page.on('pageerror', (error) => errors.push(error.message));
-page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
-const shot = (name) => page.screenshot({ path: path.join(SHOTS, `${name}.png`) });
 
 const username = `ui${Date.now().toString(36)}`;
 const profile = { handle: username, name: 'UI Walkthrough' };
@@ -216,12 +170,4 @@ await step('mobile', async () => {
   await shot('14-mobile-profile');
 });
 
-await browser.close();
-const relevant = errors.filter((error) => !/favicon|Download the React DevTools/.test(error));
-if (relevant.length) {
-  console.log(
-    `Console errors (${relevant.length}):\n  ${[...new Set(relevant)].slice(0, 10).join('\n  ')}`
-  );
-}
-console.log(failures.length ? `${failures.length} step(s) failed` : 'All steps passed');
-process.exit(failures.length ? 1 : 0);
+await finish();

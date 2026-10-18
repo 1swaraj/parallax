@@ -8,9 +8,10 @@ import { useGasMode, useLensActions } from '@/lib/actions';
 import { APP_NAME } from '@/lib/brand';
 import { MAX_BIO_CHARACTERS, MAX_NAME_CHARACTERS } from '@/lib/config';
 import { useProfile } from '@/lib/indexer';
+import { NEW_PASSKEY, PASSKEY } from '@/lib/passkey';
 import { useSession } from '@/lib/session';
 import { atHandle, Avatar, displayName } from './account';
-import { Icon } from './icons';
+import { Icon, type IconName } from './icons';
 import { useToast } from './toast';
 import { Button, CornerBrackets, Dropdown, Spinner } from './ui';
 
@@ -282,6 +283,15 @@ export function connectorName(connector: { name: string }) {
   return connector.name === 'Injected' ? 'Browser wallet' : connector.name;
 }
 
+/** A sign-in button's label. A passkey connector's name already says what it does. */
+export function connectorAction(connector: { name: string; type: string }) {
+  return connector.type === PASSKEY ? connector.name : `Continue with ${connectorName(connector)}`;
+}
+
+export function connectorIcon(connector: { type: string }): IconName {
+  return connector.type === PASSKEY ? 'key' : 'wallet';
+}
+
 /** Connect a wallet, sign in (SIWE, one free signature), create an account if the wallet has none. */
 export function AuthFlow({ onDone }: { onDone: () => void }) {
   const { isConnected, address } = useConnection();
@@ -329,7 +339,7 @@ export function AuthFlow({ onDone }: { onDone: () => void }) {
                 <span className="hidden group-hover/card:contents">
                   <CornerBrackets size={8} />
                 </span>
-                <Icon name="wallet" size={20} className="text-text-secondary" />
+                <Icon name={connectorIcon(connector)} size={20} className="text-text-secondary" />
                 <span className="flex-1 text-sm font-medium text-text-primary">
                   {connectorName(connector)}
                 </span>
@@ -388,11 +398,14 @@ export function ConnectWalletButton() {
   return (
     <Dropdown
       align="left"
-      items={connectors.map((connector) => ({
-        label: connectorName(connector),
-        icon: 'wallet' as const,
-        onSelect: () => connect({ connector }, { onError: connectErrorToast(toast) }),
-      }))}
+      // A new passkey can't own the signed-in account.
+      items={connectors
+        .filter((connector) => connector.id !== NEW_PASSKEY)
+        .map((connector) => ({
+          label: connectorName(connector),
+          icon: connectorIcon(connector),
+          onSelect: () => connect({ connector }, { onError: connectErrorToast(toast) }),
+        }))}
       trigger={({ toggle, open }) => (
         <Button size="sm" aria-expanded={open} disabled={isPending} onClick={toggle}>
           {isPending ? 'Connecting…' : 'Connect wallet'}
