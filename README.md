@@ -112,11 +112,11 @@ the chain's count never includes transactions in flight: the saved nonce is what
 ## Run it locally
 
 Needs Node 22+, pnpm 10, [Foundry](https://getfoundry.sh) 1.8.0+ (for `anvil --network monad`), and a built checkout
-of `lens-monad-protocol` on the `feat/monad-launch` branch (SponsorRouter and launch scripts):
+of `lens-monad-protocol` at the reviewed PR #4 revision (SponsorRouter and staged address-book scripts):
 
 ```sh
-git clone -b feat/monad-launch --recurse-submodules git@github.com:monad-developers/lens-monad-protocol.git
-(cd lens-monad-protocol && yarn && forge build)
+git clone --recurse-submodules git@github.com:monad-developers/lens-monad-protocol.git
+(cd lens-monad-protocol && git fetch origin pull/4/head && git checkout 02da644aebe224a3614fab2cdb4e1162c9d4a9c0 && git submodule update --init --recursive && yarn && forge build)
 
 pnpm install
 LENS_CONTRACTS_DIR=../lens-monad-protocol pnpm chain   # terminal 1: local node, Lens deployment, seed data
@@ -152,6 +152,10 @@ to `SHOTS_DIR`. It signs in with a test wallet it injects into the page, a fresh
 `RPC_URL`.
 
 ## Deploying to testnet or mainnet
+
+For the deployed Monad testnet contracts, use the [testnet handoff](docs/monad-testnet.md): the addresses are already
+included, the contracts are activated, and relayers can be configured later. Run `pnpm check:testnet` for a read-only
+deployment check.
 
 Parallax runs as a Next.js app on Vercel (the pages and the relayer's API), and the indexer and Postgres on Railway.
 
