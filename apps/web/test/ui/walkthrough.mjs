@@ -144,7 +144,7 @@ await step('create an account', async () => {
 });
 
 await step('post from the home composer', async () => {
-  const box = page.getByRole('textbox', { name: 'What is happening?!' });
+  const box = page.getByRole('textbox', { name: "What's new?" });
   await box.fill('gm from the Parallax walkthrough. #parallax @nobody');
   await shot('04-composer');
   await page.getByRole('button', { name: 'Post', exact: true }).click();

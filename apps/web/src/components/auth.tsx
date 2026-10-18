@@ -150,7 +150,7 @@ export function CreateAccountForm({ onCreated }: { onCreated?: () => void }) {
         maxLength={30}
         autoFocus
         error={invalid ?? (taken ? 'That username is taken. Try another one.' : null)}
-        hint="Lowercase letters, digits, _ and -, at least 4 characters. It's yours, onchain."
+        hint="At least 4 characters: lowercase letters, digits, _ and -."
       />
       <Field
         name="name"
@@ -170,7 +170,7 @@ export function CreateAccountForm({ onCreated }: { onCreated?: () => void }) {
       <div className="flex items-center justify-between gap-4">
         <p className="text-xs text-text-tertiary">
           {gasMode === 'sponsored'
-            ? `Free. ${APP_NAME} pays the network fee, your wallet owns the account.`
+            ? `Free: ${APP_NAME} pays the network fee.`
             : 'Your wallet pays the network fee, in MON.'}
         </p>
         <Button type="submit" variant="primary" disabled={!ready}>
@@ -289,7 +289,7 @@ export function AuthFlow({ onDone }: { onDone: () => void }) {
         <>
           <StepTitle
             title={`Join ${APP_NAME}`}
-            subtitle="Connect a wallet. Your Lens account, username, followers and posts live onchain on Monad, so they come with you to any Lens app."
+            subtitle="Connect a wallet to start. Joining is free, and your username and followers work in any Lens app."
           />
           <div className="flex flex-col gap-3">
             {connectors.map((connector) => (
@@ -322,7 +322,7 @@ export function AuthFlow({ onDone }: { onDone: () => void }) {
         <>
           <StepTitle
             title="Sign in"
-            subtitle="Sign the message in your wallet to prove it's yours. It's free and sends no transaction."
+            subtitle="Sign a message in your wallet to prove it's yours. It's free: signing sends no transaction."
           />
           <div className="flex items-center justify-between gap-3">
             <Button variant="ghost" onClick={() => disconnect()}>
@@ -343,7 +343,7 @@ export function AuthFlow({ onDone }: { onDone: () => void }) {
         <>
           <StepTitle
             title="Create your account"
-            subtitle="Pick the username people will find you by. Your Lens account is a smart wallet that your wallet owns."
+            subtitle="Pick the username people will find you by. It's yours: it works in any Lens app, and no app can take it away."
           />
           <CreateAccountForm onCreated={onDone} />
         </>
@@ -376,8 +376,8 @@ export function ConnectWalletButton() {
   );
 }
 
-/** Log out, for a wallet that signed in but has no account yet. */
-export function LogOutButton() {
+/** Sign out, for a wallet that signed in but has no account yet. */
+export function SignOutButton() {
   const { signOut } = useSession();
   const { mutate: disconnect } = useDisconnect();
   return (
@@ -386,12 +386,12 @@ export function LogOutButton() {
       size="sm"
       onClick={() => signOut.mutate(undefined, { onSuccess: () => disconnect() })}
     >
-      Log out
+      Sign out
     </Button>
   );
 }
 
-/** The account chip at the bottom of the sidebar, with Log out. */
+/** The account chip at the bottom of the sidebar, with Sign out. */
 export function AccountMenu() {
   const { account, signOut } = useSession();
   const { data } = useProfile(account, null);
@@ -406,7 +406,7 @@ export function AccountMenu() {
       direction="up"
       items={[
         {
-          label: `Log out ${atHandle(me)}`,
+          label: `Sign out ${atHandle(me)}`,
           icon: 'logout',
           onSelect: () => signOut.mutate(undefined, { onSuccess: () => disconnect() }),
         },

@@ -10,6 +10,7 @@ import {
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { createdPostId, useLensActions } from '@/lib/actions';
+import { APP_NAME } from '@/lib/brand';
 import { contracts, MAX_POST_CHARACTERS } from '@/lib/config';
 import { useProfile } from '@/lib/indexer';
 import { atHandle, Avatar } from './account';
@@ -136,11 +137,7 @@ export function Composer({
   const canPost = text.trim().length > 0 && count <= MAX_POST_CHARACTERS && !post.isPending;
   const submit = () => canPost && post.mutate(text);
   const expanded = variant !== 'reply' || focused || text.length > 0;
-  const placeholder = replyTo
-    ? 'Post your reply'
-    : quoteOf
-      ? 'Add a comment'
-      : 'What is happening?!';
+  const placeholder = replyTo ? 'Post your reply' : quoteOf ? 'Add a comment' : "What's new?";
 
   return (
     <div className={variant === 'inline' ? 'border-b border-border-default' : ''}>
@@ -193,12 +190,12 @@ export function Composer({
                 className="mono-caps flex items-center gap-1.5 text-[11px] leading-4 text-text-tertiary"
                 title={
                   sponsored
-                    ? 'Parallax pays the network fee of your post'
-                    : 'Your wallet pays the network fee, in MON'
+                    ? `${APP_NAME} pays this post's network fee`
+                    : "Your wallet pays this post's network fee, in MON"
                 }
               >
                 <Icon name="gas" size={14} />
-                {sponsored ? 'Gas sponsored' : 'Paid in MON'}
+                {sponsored ? 'No fee' : 'Fee in MON'}
               </span>
               <div className="flex items-center gap-3">
                 <CharacterRing count={count} />

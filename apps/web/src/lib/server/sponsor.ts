@@ -1,5 +1,6 @@
 import { accountBlockingRuleAbi, feedAbi, graphAbi } from '@lens-monad/protocol';
 import { decodeFunctionData, isAddressEqual, type Abi, type Address, type Hex } from 'viem';
+import { APP_NAME } from '../brand';
 import { contracts } from '../config';
 import { isOwnedBy, isSponsored } from './chain';
 import { numberEnv } from './env';
@@ -22,7 +23,7 @@ export async function sponsoredAccount(session: SessionData): Promise<Address> {
   if (!(await isSponsored(account))) {
     throw new HttpError(
       403,
-      "This account doesn't allow sponsored actions, enable them in Settings"
+      `This account doesn't let ${APP_NAME} pay its fees. Allow it in Settings.`
     );
   }
   await rateLimit(`relay:${account}`, numberEnv('RELAY_RATE_LIMIT_PER_MINUTE', 30), 60 * 1000);
@@ -57,14 +58,14 @@ export function assertSponsoredCall(target: Address, data: Hex) {
   const allowed = SPONSORED_CALLS.find((entry) => isAddressEqual(entry.target, target));
   const call = allowed ? decode(allowed.abi, data) : null;
   if (!allowed || !call || !allowed.functionNames.includes(call.functionName)) {
-    throw new HttpError(400, "That action can't be sponsored");
+    throw new HttpError(400, `${APP_NAME} can't pay the fee of that action`);
   }
   // Rule changes attach contracts of the caller's choosing to the post, which run on the relayer's gas. No other
   // sponsored function changes rules.
   if (call.functionName === 'createPost') {
     const [post] = call.args as readonly [{ ruleChanges: readonly unknown[] }];
     if (post.ruleChanges.length > 0) {
-      throw new HttpError(400, "Posts with rules can't be sponsored");
+      throw new HttpError(400, `${APP_NAME} can't pay the fee of posts with rules`);
     }
   }
 }

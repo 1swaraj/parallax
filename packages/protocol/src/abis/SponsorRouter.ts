@@ -36,39 +36,41 @@ export const sponsorRouterAbi = [
   },
   {
     "type": "function",
-    "name": "executeMany",
-    "inputs": [
+    "name": "getFunctions",
+    "inputs": [],
+    "outputs": [
       {
-        "name": "calls",
+        "name": "functions",
         "type": "tuple[]",
-        "internalType": "struct SponsoredCall[]",
+        "internalType": "struct SponsoredFunction[]",
         "components": [
-          {
-            "name": "account",
-            "type": "address",
-            "internalType": "address"
-          },
           {
             "name": "target",
             "type": "address",
             "internalType": "address"
           },
           {
-            "name": "data",
-            "type": "bytes",
-            "internalType": "bytes"
+            "name": "selector",
+            "type": "bytes4",
+            "internalType": "bytes4"
           }
         ]
       }
     ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getRelayers",
+    "inputs": [],
     "outputs": [
       {
-        "name": "succeeded",
-        "type": "bool[]",
-        "internalType": "bool[]"
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
       }
     ],
-    "stateMutability": "nonpayable"
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -197,6 +199,43 @@ export const sponsorRouterAbi = [
         "name": "metadataURI",
         "type": "string",
         "internalType": "string"
+      },
+      {
+        "name": "sourceStamp",
+        "type": "tuple",
+        "internalType": "struct SourceStamp",
+        "components": [
+          {
+            "name": "source",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "originalMsgSender",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "validator",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "deadline",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "signature",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
       }
     ],
     "outputs": [],
@@ -267,37 +306,6 @@ export const sponsorRouterAbi = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "Lens_SponsorRouter_CallFailed",
-    "inputs": [
-      {
-        "name": "index",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "account",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "target",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "reason",
-        "type": "bytes",
-        "indexed": false,
-        "internalType": "bytes"
       }
     ],
     "anonymous": false

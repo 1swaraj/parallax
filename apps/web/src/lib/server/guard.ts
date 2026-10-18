@@ -1,5 +1,6 @@
 import { describeLensError, lensErrorName } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
+import { APP_NAME } from '../brand';
 import { booleanEnv, missingSponsorSettings } from './env';
 
 export class HttpError extends Error {
@@ -34,12 +35,18 @@ export function isPaused() {
 /** Refuses actions the relayers would pay for while paused, or while the settings that bound their spending lack. */
 export function assertSponsorshipAvailable() {
   if (isPaused()) {
-    throw new HttpError(503, 'Sponsored actions are paused, try again soon');
+    throw new HttpError(
+      503,
+      `${APP_NAME} isn't paying network fees right now. Try again soon, or pay from your wallet (Settings).`
+    );
   }
   const missing = missingSponsorSettings();
   if (missing.length > 0) {
     console.error(`Sponsored actions are refused: set ${missing.join(' and ')}`);
-    throw new HttpError(503, "Sponsorship isn't configured");
+    throw new HttpError(
+      503,
+      `${APP_NAME} can't pay network fees here yet. Pay from your wallet (Settings).`
+    );
   }
 }
 

@@ -63,7 +63,10 @@ describe('ops', () => {
   it.runIf(EXPECT === 'paused')('refuses every sponsored action while paused', async () => {
     const alice = user();
     expect((await alice.signIn()).status).toBe(200);
-    const paused = { error: 'Sponsored actions are paused, try again soon' };
+    const paused = {
+      error:
+        "Parallax isn't paying network fees right now. Try again soon, or pay from your wallet (Settings).",
+    };
     const signUp = await alice.call('/api/signup', {
       method: 'POST',
       body: { username: 'paused' },

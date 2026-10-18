@@ -1,6 +1,7 @@
 import { feedAbi, sponsorRouterAbi } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
 import { isAddress, isHex, parseEventLogs, type Address, type Hex } from 'viem';
+import { APP_NAME } from '@/lib/brand';
 import { contracts } from '@/lib/config';
 import { sendAsRelayer } from '@/lib/server/chain';
 import { maxGasPerTransaction } from '@/lib/server/env';
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
     assertSameOrigin(request);
     const { target, data } = (await request.json()) as { target?: string; data?: string };
     if (!target || !isAddress(target)) {
-      throw new HttpError(400, "That action can't be sponsored");
+      throw new HttpError(400, `${APP_NAME} can't pay the fee of that action`);
     }
     if (!data || !isHex(data) || (data.length - 2) / 2 > MAX_CALLDATA_BYTES) {
       throw new HttpError(400, 'Invalid or oversized call');

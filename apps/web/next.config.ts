@@ -36,6 +36,9 @@ const config: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? '.next',
   transpilePackages: ['@lens-monad/protocol'],
   poweredByHeader: false,
+  // `next dev` only: other hosts that may load the dev server's resources (hot reload), e.g. a tunnel's or a preview
+  // URL's host. Comma-separated.
+  allowedDevOrigins: process.env.ALLOWED_DEV_ORIGINS?.split(',').filter(Boolean),
   // The browser reads the indexer through the app's origin, so the indexer needs no CORS.
   async rewrites() {
     return [{ source: '/indexer/:path*', destination: `${indexerUrl}/:path*` }];

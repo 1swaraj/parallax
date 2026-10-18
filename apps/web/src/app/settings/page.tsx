@@ -4,14 +4,14 @@ import { useMutation } from '@tanstack/react-query';
 import { useConnection, useDisconnect } from 'wagmi';
 import { atHandle, Avatar, displayName } from '@/components/account';
 import { Icon } from '@/components/icons';
-import { ConnectWalletButton, LogOutButton } from '@/components/auth';
+import { ConnectWalletButton, SignOutButton } from '@/components/auth';
 import { useAuthModal, useEditProfile } from '@/components/modals';
 import { useTheme, type Theme } from '@/components/theme';
 import { useToast } from '@/components/toast';
 import { Button, CornerBrackets, PageHeader } from '@/components/ui';
 import { useGasMode, useLensActions, type GasMode } from '@/lib/actions';
 import { APP_NAME } from '@/lib/brand';
-import { chain, contracts } from '@/lib/config';
+import { chain, contracts, EXPLORER_URL, explorerAddressUrl } from '@/lib/config';
 import { useProfile } from '@/lib/indexer';
 import { useSession } from '@/lib/session';
 import { usePageTitle } from '@/lib/title';
@@ -133,7 +133,7 @@ function AccountSection() {
             variant="ghost"
             onClick={() => signOut.mutate(undefined, { onSuccess: () => disconnect() })}
           >
-            Log out
+            Sign out
           </Button>
         </div>
       </div>
@@ -150,20 +150,20 @@ function FeesSection() {
   const toast = useToast();
   const enable = useMutation({
     mutationFn: enableSponsorship,
-    onSuccess: () => toast.show('Sponsored actions are on'),
+    onSuccess: () => toast.show(`${APP_NAME} now pays your network fees`),
     onError: (error) => toast.error(error.message),
   });
   const options: { id: GasMode; title: string; description: string }[] = [
     {
       id: 'sponsored',
       title: `${APP_NAME} pays (free)`,
-      description: `${APP_NAME}'s relayer sends your posts, follows and blocks through the SponsorRouter. Your account lets it act for you, never move funds, and you can revoke it anytime.`,
+      description: `${APP_NAME} sends your posts, follows and profile changes for you and pays their fees. It can act for your account but never move its funds, and you can revoke it anytime.`,
     },
     {
       id: 'direct',
       title: 'My wallet pays',
       description:
-        'Your wallet sends each action to your account and pays the fee in MON. No app in between.',
+        'Your wallet sends each action itself and pays its fee in MON. No app in between.',
     },
   ];
   return (
@@ -195,7 +195,7 @@ function FeesSection() {
         <div className="relative mt-4 flex flex-wrap items-center justify-between gap-3 bg-status-info-bg py-3 pr-4 pl-4">
           <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-status-info" />
           <p className="text-sm text-text-primary">
-            This account doesn&apos;t allow sponsored actions yet, so your wallet pays for
+            This account doesn&apos;t let {APP_NAME} pay its fees yet, so your wallet pays for
             everything.
           </p>
           <Button
@@ -204,7 +204,7 @@ function FeesSection() {
             disabled={enable.isPending}
             onClick={() => enable.mutate()}
           >
-            {enable.isPending ? 'Enabling…' : 'Allow sponsorship'}
+            {enable.isPending ? 'Allowing…' : `Let ${APP_NAME} pay`}
           </Button>
         </div>
       )}
@@ -212,22 +212,37 @@ function FeesSection() {
   );
 }
 
-function SpecRow({ topic, value }: { topic: string; value: string }) {
+/** A copyable value, and its page on the block explorer when there is one. */
+function SpecRow({ topic, value, href }: { topic: string; value: string; href?: string | null }) {
   const toast = useToast();
   return (
     <div className="flex items-center justify-between gap-4 border-b border-border-default py-2 last:border-b-0">
       <span className="text-sm text-text-primary">{topic}</span>
-      <button
-        type="button"
-        title="Copy"
-        onClick={() =>
-          navigator.clipboard.writeText(value).then(() => toast.show(`${topic} copied`))
-        }
-        className="focus-ring flex min-w-0 items-center gap-2 rounded-sm font-mono text-xs text-text-secondary hover:text-text-primary"
-      >
-        <bdi className="truncate">{value}</bdi>
-        <Icon name="link" size={12} className="shrink-0" />
-      </button>
+      <div className="flex min-w-0 items-center gap-3">
+        <button
+          type="button"
+          title="Copy"
+          onClick={() =>
+            navigator.clipboard.writeText(value).then(() => toast.show(`${topic} copied`))
+          }
+          className="focus-ring flex min-w-0 items-center gap-2 rounded-sm font-mono text-xs text-text-secondary hover:text-text-primary"
+        >
+          <bdi className="truncate">{value}</bdi>
+          <Icon name="link" size={12} className="shrink-0" />
+        </button>
+        {href && (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            title="View on explorer"
+            aria-label={`View ${topic} on explorer`}
+            className="focus-ring shrink-0 rounded-sm text-text-secondary hover:text-text-primary"
+          >
+            <Icon name="share" size={12} />
+          </a>
+        )}
+      </div>
     </div>
   );
 }
@@ -250,7 +265,7 @@ export default function SettingsPage() {
               Sign in to edit your profile and choose who pays network fees.
             </p>
             <div className="flex gap-2">
-              {owner && <LogOutButton />}
+              {owner && <SignOutButton />}
               <Button variant="primary" onClick={openAuth}>
                 {owner ? 'Create account' : 'Sign in'}
               </Button>
@@ -276,13 +291,21 @@ export default function SettingsPage() {
         description={`${APP_NAME} reads and writes Lens Protocol V3 contracts on ${chain.name}. Any Lens app can read the same data.`}
       >
         <div>
-          <SpecRow topic="Network" value={`${chain.name} (${chain.id})`} />
-          {owner && <SpecRow topic="Wallet" value={owner} />}
-          {account && <SpecRow topic="Lens account" value={account} />}
-          <SpecRow topic="Feed" value={contracts.LensGlobalFeed} />
-          <SpecRow topic="Graph" value={contracts.LensGlobalGraph} />
-          <SpecRow topic="Namespace" value={contracts.LensGlobalNamespace} />
-          <SpecRow topic="SponsorRouter" value={contracts.SponsorRouter} />
+          <SpecRow topic="Network" value={`${chain.name} (${chain.id})`} href={EXPLORER_URL} />
+          {owner && <SpecRow topic="Wallet" value={owner} href={explorerAddressUrl(owner)} />}
+          {account && (
+            <SpecRow topic="Lens account" value={account} href={explorerAddressUrl(account)} />
+          )}
+          {(
+            [
+              ['Feed', contracts.LensGlobalFeed],
+              ['Graph', contracts.LensGlobalGraph],
+              ['Namespace', contracts.LensGlobalNamespace],
+              ['SponsorRouter', contracts.SponsorRouter],
+            ] as const
+          ).map(([topic, address]) => (
+            <SpecRow key={topic} topic={topic} value={address} href={explorerAddressUrl(address)} />
+          ))}
         </div>
       </Section>
     </>

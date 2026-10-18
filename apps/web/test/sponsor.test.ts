@@ -29,7 +29,7 @@ const BLOCKING = contracts.AccountBlockingRule;
 const [me, them] = [randomAddress(), randomAddress()];
 const content = 'data:application/json,{}';
 
-function refused(call: AccountCall, message = "That action can't be sponsored") {
+function refused(call: AccountCall, message = "Parallax can't pay the fee of that action") {
   let error: unknown;
   try {
     assertSponsoredCall(call.target, call.data);
@@ -110,7 +110,7 @@ describe('the calls /api/relay sponsors', () => {
   });
 
   it('refuses posts that attach rules', () => {
-    refused(postWithRule(), "Posts with rules can't be sponsored");
+    refused(postWithRule(), "Parallax can't pay the fee of posts with rules");
   });
 
   it('refuses other targets, a function sent to the wrong target, and calldata that does not decode', () => {
