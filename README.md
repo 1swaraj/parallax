@@ -79,8 +79,9 @@ share lives in `lens_web`: relayer nonces, rate limits, the hourly gas budget, a
 2. **Relayer.** The actor (the Account, or the owner for a sign-up) is hashed to one of `RELAYER_PRIVATE_KEYS`.
 3. **Simulation.** A revert costs nothing and comes back as the contract's error. The gas limit is the estimate plus
    10% (Monad charges the limit, so it stays tight), refused over `SPONSOR_MAX_GAS_PER_TX` (`_PER_SIGNUP` for sign-ups).
-4. **Fees.** The fee cap is twice the base fee plus the tip: a transaction pays the base fee and tip, not its cap, and
-   one whose cap the base fee rises past would hold up its relayer (below).
+4. **Fees.** The fee cap is twice the base fee plus the tip. Monad charges the gas limit times the base fee plus the
+   tip, capped by the fee cap ([gas pricing](https://docs.monad.xyz/developer-essentials/gas-pricing)), so the headroom
+   costs nothing; a transaction whose cap the base fee rises past isn't included, and holds up its relayer (below).
 5. **Budget.** The gas limit is reserved in this hour's `SPONSOR_GAS_BUDGET_PER_HOUR`, or the action gets a 503.
 6. **Nonce and broadcast**, under the relayer's lock (below).
 7. **Receipt**, outside the lock, for up to 30s; past that the action answers 504 "sent, not confirmed". The budget
@@ -90,18 +91,21 @@ share lives in `lens_web`: relayer nonces, rate limits, the hourly gas budget, a
 **Relayers and nonces** (`nonces.ts`, `relayers.ts`). Each key is one nonce sequence. An Account always goes through
 the same key, so its actions go out in order; different keys send in parallel, so throughput grows with the number
 of keys. For each relayer, Postgres keeps the next nonce to use, the chain's count last time it looked, and when that
-last moved. A request takes the relayer's lock, reads the chain's pending count, uses the larger of the two, broadcasts,
-saves, and lets go: many transactions per relayer are in flight at once, and nothing waits for a receipt under the lock.
+last moved. A request takes the relayer's lock, reads the chain's count, uses the larger of the two, broadcasts, saves,
+and lets go: many transactions per relayer are in flight at once, and nothing waits for a receipt under the lock. On
+Monad, `pending` is the same as `latest` ([RPC differences](https://docs.monad.xyz/reference/rpc-differences)), so
+the chain's count never includes transactions in flight: the saved nonce is what keeps them apart.
 
 - **The lock.** A Postgres advisory lock per relayer orders requests across instances. Within an instance, a relayer's
   requests queue in memory before asking for a connection, so each relayer holds at most one, from a pool of its own
   (one connection per key). Requests waiting on a busy relayer can't take the connections other relayers, rate limits
   and likes need. A request that waited 15s in all gets a 503.
-- **Recovery.** A nonce the node says is taken is skipped and the broadcast retried, up to 3 times; a gap goes back to
-  the chain's count; a nonce error for a transaction the node already has counts as sent. If the chain's count stays
-  behind ours for 30s without moving, a transaction was dropped and every later one waits behind it: the nonces are
-  reused from the chain's. A saved state far ahead of the chain, or a chain whose count went back, is a restarted
-  chain or a restored database, and is dropped at once.
+- **Recovery.** A nonce the node says is taken is skipped and the broadcast retried, up to 3 times; a gap the node
+  reports goes back to the chain's count; a nonce error for a transaction the node already has counts as sent.
+  Monad's RPC accepts transactions with a nonce gap rather than refusing them, so there a dropped transaction shows up
+  as a stall instead: if the chain's count stays behind ours for 30s without moving, every later transaction waits
+  behind a missing one, and the nonces are reused from the chain's. A saved state far ahead of the chain, or a chain
+  whose count went back, is a restarted chain or a restored database, and is dropped at once.
 - **Throughput.** The lock is held for about four database round trips and two RPC calls: roughly 3 transactions per
   second per key with Postgres in another region, 10 or more with Postgres and the RPC next to the functions.
 
@@ -226,9 +230,13 @@ calls `setRelayer(relayer, false)` (its Accounts get a 503 until the key is remo
   many keys to run. Moving the chain's nonce read out of the lock would raise it further.
 - **Stuck transactions.** A transaction the node keeps but doesn't include holds up every later one from its relayer
   (1/N of Accounts) until the 30s stall recovery: those actions answer 504 and may still go in later.
-- **Relayer balances.** Consensus on Monad runs ahead of execution, and checks a sender's in-flight gas against its
-  reserve balance. Keep each relayer well above it, not just above `RELAYER_MIN_BALANCE_MON`: a relayer whose
-  transactions are left out stalls like a stuck one.
+- **Relayer balances.** Consensus on Monad runs ahead of execution, so it only includes a sender's transaction while
+  the gas of its transactions from the last 3 blocks (~1.2s) stays under its
+  [reserve balance](https://docs.monad.xyz/developer-essentials/reserve-balance): 10 MON, or the sender's balance if
+  lower. At ~102 gwei, an action costs at most ~0.15 MON (a sign-up ~0.31), so a relayer at 10 MON or more can have
+  60+ actions in flight per 1.2s, far above what one key sends, and one at `RELAYER_MIN_BALANCE_MON` (5) half that. It
+  only limits a relayer that's nearly empty, whose transactions are then left out and stall like a stuck one: keep
+  relayers funded, and alert on `/api/health`.
 - **Lost broadcasts.** If the RPC accepts a transaction but its answer is lost (a timeout), the action is reported as
   failed though it may still go in, and a retry can duplicate it.
 - **Pausing isn't instant.** `RELAY_PAUSED` takes a redeploy on Vercel (about a minute); `setRelayer(…, false)` from
