@@ -1,5 +1,6 @@
-// Drives the app in Chromium like a user, on the local stack, with a dev wallet: sign in, create an account, post,
-// reply, repost, follow, notifications, profile, settings, dark mode and mobile. Screenshots go to SHOTS_DIR.
+// Drives the app in Chromium like a user, on the local stack: sign in, create an account, post, reply, repost, follow,
+// notifications, profile, settings, dark mode and mobile. Screenshots go to SHOTS_DIR. The browser wallet is a test
+// one, a fresh key each run that the page reaches as window.ethereum: it signs messages, the node answers the rest.
 //
 //   APP_URL=http://localhost:3000 SHOTS_DIR=./shots node test/ui/walkthrough.mjs
 //
@@ -10,7 +11,9 @@ import path from 'node:path';
 
 const APP = process.env.APP_URL ?? 'http://localhost:3000';
 const SHOTS = path.resolve(process.env.SHOTS_DIR ?? './shots');
+const RPC_URL = process.env.RPC_URL ?? 'http://127.0.0.1:8545';
 const { chromium } = await import(process.env.PLAYWRIGHT_CORE ?? 'playwright-core');
+const { generatePrivateKey, privateKeyToAccount } = await import('viem/accounts');
 
 fs.mkdirSync(SHOTS, { recursive: true });
 const browser = await chromium.launch({
@@ -49,6 +52,61 @@ const step = async (name, fn) => {
 };
 
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const wallet = privateKeyToAccount(generatePrivateKey());
+const chainId = await rpc('eth_chainId', []);
+
+async function rpc(method, params) {
+  const response = await fetch(RPC_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+  const body = await response.json();
+  if (body.error) {
+    throw Object.assign(new Error(body.error.message), { code: body.error.code });
+  }
+  return body.result;
+}
+
+// The wallet's side of window.ethereum's requests. Errors go back as values: thrown ones lose their code on the way.
+await context.exposeFunction('testWalletRequest', async (method, params = []) => {
+  try {
+    switch (method) {
+      case 'eth_requestAccounts':
+      case 'eth_accounts':
+        return { result: [wallet.address] };
+      case 'eth_chainId':
+        return { result: chainId };
+      case 'personal_sign':
+        return { result: await wallet.signMessage({ message: { raw: params[0] } }) };
+      case 'wallet_switchEthereumChain':
+        return params[0]?.chainId === chainId
+          ? { result: null }
+          : { error: { code: 4902, message: 'Unknown chain' } };
+      default:
+        if (method.startsWith('wallet_') || method.startsWith('eth_sign')) {
+          return { error: { code: 4200, message: `${method} is not supported` } };
+        }
+        return { result: await rpc(method, params) };
+    }
+  } catch (error) {
+    return { error: { code: error.code ?? -32603, message: error.message } };
+  }
+});
+await context.addInitScript(() => {
+  window.ethereum = {
+    async request({ method, params }) {
+      const { result, error } = await window.testWalletRequest(method, params);
+      if (error) {
+        throw Object.assign(new Error(error.message), error);
+      }
+      return result;
+    },
+    on() {},
+    removeListener() {},
+  };
+});
+
 const page = await context.newPage();
 const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
@@ -56,10 +114,7 @@ page.on('console', (message) => message.type() === 'error' && errors.push(messag
 const shot = (name) => page.screenshot({ path: path.join(SHOTS, `${name}.png`) });
 
 const username = `ui${Date.now().toString(36)}`;
-// The account the profile steps open: the new one, or the one the wallet already had on an earlier run.
-let profile = { handle: username, name: 'UI Walkthrough' };
-// Wallet 1 is the one a person tries first: the walkthrough keeps out of its way.
-const wallet = Number(process.env.DEV_WALLET ?? 3);
+const profile = { handle: username, name: 'UI Walkthrough' };
 
 await step('home, signed out', async () => {
   await page.goto(APP, { waitUntil: 'networkidle' });
@@ -67,37 +122,25 @@ await step('home, signed out', async () => {
   await shot('01-home-signed-out');
 });
 
-await step('sign in with a dev wallet', async () => {
+await step('sign in with the browser wallet', async () => {
   await page.getByRole('button', { name: /join parallax/i }).click();
   await page.getByRole('dialog', { name: 'Sign in' }).waitFor();
   await shot('02-sign-in-connect');
-  await page.getByRole('button', { name: new RegExp(`Dev wallet ${wallet}`) }).click();
+  await page.getByRole('button', { name: 'Browser wallet' }).click();
 });
 
 await step('create an account', async () => {
   const dialog = page.getByRole('dialog', { name: 'Sign in' });
   const field = dialog.getByLabel('Username');
-  const needsAccount = await field
-    .waitFor({ timeout: 20000 })
-    .then(() => true)
-    .catch(() => false);
-  if (needsAccount) {
-    await field.fill(username);
-    await dialog.getByLabel('Display name (optional)').fill('UI Walkthrough');
-    await dialog.getByLabel('Bio (optional)').fill('Testing Parallax end to end.');
-    await page.waitForTimeout(600);
-    await shot('03-create-account');
-    await dialog.getByRole('button', { name: 'Create account' }).click();
-  }
+  await field.waitFor({ timeout: 20000 });
+  await field.fill(username);
+  await dialog.getByLabel('Display name (optional)').fill(profile.name);
+  await dialog.getByLabel('Bio (optional)').fill('Testing Parallax end to end.');
+  await page.waitForTimeout(600);
+  await shot('03-create-account');
+  await dialog.getByRole('button', { name: 'Create account' }).click();
   await dialog.waitFor({ state: 'detached', timeout: 30000 });
   await page.getByRole('button', { name: 'New post' }).first().waitFor();
-  if (!needsAccount) {
-    const { account } = await page.evaluate(
-      async (address) => (await fetch(`/indexer/accounts/${address}`)).json(),
-      (await page.evaluate(async () => (await fetch('/api/auth/session')).json())).account
-    );
-    profile = { handle: account.username, name: account.name ?? account.username };
-  }
 });
 
 await step('post from the home composer', async () => {

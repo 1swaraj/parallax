@@ -19,7 +19,7 @@ fi
 
 # The clock starts 5 days back, so the seed can spread its posts over the last few days; seeding (or SEED=0) then
 # brings it back to the wall clock.
-anvil --network monad --auto-impersonate --port 8545 --silent --timestamp $(($(date +%s) - 5 * 86400)) &
+anvil --network monad --port 8545 --silent --timestamp $(($(date +%s) - 5 * 86400)) &
 ANVIL_PID=$!
 trap 'kill $ANVIL_PID 2>/dev/null' EXIT INT TERM
 

@@ -132,8 +132,8 @@ a follow graph, all through the same contracts and relayer the app uses (`SEED=0
 but the local one: fake people don't belong on a public network. Restart `pnpm indexer` after restarting the chain.
 Without `DATABASE_URL`, likes live in the web server's memory and go away when it restarts.
 
-On the local chain, "Sign in" lists three **dev wallets** (anvil accounts the node signs for), so no extension is
-needed. A browser wallet works too: add network `http://127.0.0.1:8545`, chain 31337.
+To sign in, use a browser wallet with the local network added: RPC `http://127.0.0.1:8545`, chain 31337. Any address
+works, it needs no MON: signing up and posting are sponsored.
 
 ## Tests
 
@@ -148,7 +148,8 @@ node apps/web/test/ui/walkthrough.mjs         # the UI in Chromium: sign up, pos
 
 The web end-to-end tests read `/api/health`'s details, so run them with the server's `HEALTH_TOKEN` set. The UI
 walkthrough needs `playwright-core` and a Chromium (`PLAYWRIGHT_CORE`, `CHROMIUM_PATH`), and saves screenshots
-to `SHOTS_DIR`.
+to `SHOTS_DIR`. It signs in with a test wallet it injects into the page, a fresh key each run, and reads the chain at
+`RPC_URL`.
 
 ## Deploying to testnet or mainnet
 
