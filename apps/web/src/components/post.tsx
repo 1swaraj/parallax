@@ -26,7 +26,7 @@ import { useAuthModal, useCompose, useConfirm } from './modals';
 import { useToast } from './toast';
 import { CornerBrackets, Dropdown } from './ui';
 
-/** One action of the bar: icon and mono count. Purple on hover and when active, like every MDS interaction. */
+/** One action of the bar: icon and mono count. Purple on hover and when active, like every interaction. */
 function ActionButton({
   icon,
   label,
@@ -284,7 +284,7 @@ function PostMenu({ post, linkId }: { post: PostView; linkId: string }) {
 }
 
 /**
- * A post in a list (MDS List Row behavior: hover fill and corner brackets). Reposts show the reposted post under
+ * A post in a list (hover fill and corner brackets). Reposts show the reposted post under
  * "X reposted". In a thread, `lineAbove` / `lineBelow` draw the line that links the avatars.
  */
 export function PostCard({

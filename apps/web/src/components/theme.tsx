@@ -7,7 +7,7 @@ export type Theme = 'light' | 'dark' | 'system';
 
 export const THEME_STORAGE_KEY = 'parallax-theme';
 
-/** Applied before paint (in <head>), so the page never flashes the other mode. Light is the MDS default. */
+/** Applied before paint (in <head>), so the page never flashes the other mode. Light is the default. */
 export const THEME_INIT_SCRIPT = `(function(){try{var s=localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});var d=s==='dark'||(s==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);document.documentElement.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
 
 const listeners = new Set<() => void>();

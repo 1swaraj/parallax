@@ -1,4 +1,4 @@
-// Britti Sans is licensed to Monad, so it isn't in this repo. A build with DISPLAY_FONT_URL set
+// The titles' font is licensed separately, so it isn't in this repo. A build with DISPLAY_FONT_URL set
 // downloads it into public/fonts; without it, titles fall back to Inter.
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';

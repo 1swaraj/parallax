@@ -28,7 +28,7 @@ export function useToast() {
 const READ_TIME = 5000;
 
 /**
- * MDS Toast: elevated, a status strip, mono caps action. Routine toasts leave after a readable interval (paused on
+ * Toast: elevated, a status strip, mono caps action. Routine toasts leave after a readable interval (paused on
  * hover); errors and toasts with an action stay until dismissed. Announced through a live region, never focused.
  */
 export function ToastProvider({ children }: { children: ReactNode }) {

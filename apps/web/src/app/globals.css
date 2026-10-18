@@ -1,12 +1,12 @@
 @import 'tailwindcss';
 
 /*
- * MDS-2026, Monad's design system (github.com/monad-exp/design.md): its semantic tokens, light by default, dark
- * under `.dark` on <html>. Components use these tokens only, never raw values.
+ * Semantic tokens, light by default, dark under `.dark` on <html>. Components use these tokens only, never raw
+ * values.
  */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Not in the repo (licensed to Monad): scripts/fetch-display-font.mjs adds it at build time. */
+/* Not in the repo (licensed separately): scripts/fetch-display-font.mjs adds it at build time. */
 @font-face {
   font-family: 'Britti Sans';
   src: url('/fonts/britti-sans-variable.woff2') format('woff2');
@@ -53,7 +53,7 @@
   --motion-duration-fast: 150ms;
   --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* Buttons: fixed fills with crossfading radial washes (MDS button effect tokens). */
+  /* Buttons: fixed fills with crossfading radial washes. */
   --button-shadow-ambient: rgba(0, 0, 0, 0.2);
   --button-primary-bg: #6e54ff;
   --button-primary-text: #ffffff;
@@ -122,10 +122,10 @@
 
   --button-ghost-text-hover: #727285;
 
-  /* Provisional floating-surface shadow and modal scrim (MDS known gap: effects aren't tokenized yet). */
+  /* Provisional floating-surface shadow and modal scrim. */
   --shadow-float: 0 4px 16px rgba(0, 0, 0, 0.12);
   --overlay: rgba(38, 38, 43, 0.4);
-  /* monad.xyz's page texture: a 1px dot grid behind the content rail. */
+  /* Page texture: a 1px dot grid behind the content rail. */
   --dot: rgba(10, 10, 10, 0.08);
 
   color-scheme: light;
@@ -257,7 +257,7 @@ h5 {
   color: var(--text-primary);
 }
 
-/* Eyebrows and metadata: system speaking (MDS .mono-caps). */
+/* Eyebrows and metadata: system speaking. */
 @utility dot-grid {
   background-image: radial-gradient(circle, var(--dot) 1px, transparent 0);
   background-size: 16px 16px;
@@ -290,7 +290,7 @@ h5 {
   }
 }
 
-/* Floating surfaces enter with opacity and a 4px rise (MDS motion). */
+/* Floating surfaces enter with opacity and a 4px rise. */
 @utility animate-float {
   animation: float-in 180ms var(--motion-ease-out);
 }

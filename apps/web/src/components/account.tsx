@@ -26,7 +26,7 @@ export function profileHref(account: Pick<AccountView, 'username' | 'address'>) 
   return `/u/${handleOf(account)}`;
 }
 
-/** Initials for accounts without a picture, like the MDS Avatar's fallback. */
+/** Initials for accounts without a picture. */
 function initialsOf(account: Pick<AccountView, 'name' | 'username' | 'address'>) {
   const source = account.name || account.username || account.address.slice(2);
   const words = source.trim().split(/\s+/);
@@ -43,7 +43,7 @@ const INITIAL_SIZES: Record<number, string> = {
   120: 'text-3xl',
 };
 
-/** MDS Avatar: round, hairline border, the accent border on hover; initials when there is no picture. */
+/** Avatar: round, hairline border, the accent border on hover; initials when there is no picture. */
 export function Avatar({
   account,
   size = 40,
@@ -110,7 +110,7 @@ export function NameLine({
   );
 }
 
-/** MDS Badge, Fill-Gray, XS. */
+/** A small gray badge. */
 export function FollowsYou() {
   return (
     <span className="ml-2 shrink-0 rounded-sm bg-bg-subtle px-2 py-0.5 font-mono text-[9px] leading-[11px] font-medium tracking-[1.5px] text-text-secondary uppercase">
@@ -119,7 +119,7 @@ export function FollowsYou() {
   );
 }
 
-/** MDS List Row (Avatar type): who to follow, followers, search results. Brackets on hover. */
+/** Account row: who to follow, followers, search results. Brackets on hover. */
 export function AccountRow({
   account,
   relationship,

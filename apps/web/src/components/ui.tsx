@@ -6,8 +6,7 @@ import { createPortal } from 'react-dom';
 import { Icon, type IconName } from './icons';
 
 /*
- * MDS-2026 primitives (design.md, Components): Button, menus, modal, tabs, empty state, and the decorative
- * vocabulary (corner brackets on hovered content, corner squares on the page rails).
+ * Primitives: button, menus, modal, tabs, empty state, and the decorative vocabulary (corner brackets on hovered content, corner squares on the page rails).
  */
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
@@ -54,7 +53,7 @@ export function buttonClassName(
   return `${BUTTON_BASE} ${BUTTON_VARIANTS[variant]} ${BUTTON_SIZES[size]}`;
 }
 
-/** MDS Button: four variants, mono caps labels, content-fit width. At most one primary per surface. */
+/** Button: four variants, mono caps labels, content-fit width. At most one primary per surface. */
 export function Button({
   variant = 'secondary',
   size = 'default',
@@ -101,7 +100,7 @@ export function IconButton({
   );
 }
 
-/** Corner brackets, the MDS signature on hovered content surfaces: 8px arms on rows and tiles, 16px on cards. */
+/** Corner brackets on hovered content surfaces: 8px arms on rows and tiles, 16px on cards. */
 export function CornerBrackets({
   size = 8,
   className = '',
@@ -182,7 +181,7 @@ export function FeedSkeleton({ rows = 6 }: { rows?: number }) {
   );
 }
 
-/** MDS Empty State: boxed icon, title, one line, an optional next action. */
+/** Empty state: boxed icon, title, one line, an optional next action. */
 export function EmptyState({
   icon = 'sparkle',
   title,
@@ -208,7 +207,7 @@ export function EmptyState({
   );
 }
 
-/** MDS Alert Banner (error), for a view that failed to load. */
+/** Error banner, for a view that failed to load. */
 export function ErrorState({ error, onRetry }: { error: Error; onRetry?: () => void }) {
   const unreachable = /fetch|NetworkError|50\d/.test(error.message);
   return (
@@ -227,7 +226,7 @@ export function ErrorState({ error, onRetry }: { error: Error; onRetry?: () => v
   );
 }
 
-/** MDS Tabs: mono caps labels, a 2px focus-colored underline on the active one. Arrow keys move between tabs. */
+/** Tabs: mono caps labels, a 2px focus-colored underline on the active one. Arrow keys move between tabs. */
 export function Tabs<T extends string>({
   tabs,
   active,
@@ -285,7 +284,7 @@ export function Tabs<T extends string>({
   );
 }
 
-/** The sticky header of the center column: back, a Britti title, mono metadata. */
+/** The sticky header of the center column: back, a title, mono metadata. */
 export function PageHeader({
   title,
   meta,
@@ -333,7 +332,7 @@ export function PageHeader({
 }
 
 /**
- * MDS Modal: sharp, elevated, with a title row. `bracketed` for technical confirmations. Escape and the scrim close
+ * Modal: sharp, elevated, with a title row. `bracketed` for technical confirmations. Escape and the scrim close
  * it, focus moves in and comes back, the page behind doesn't scroll.
  */
 export function Modal({
@@ -440,7 +439,7 @@ export type MenuItem = {
   hidden?: boolean;
 };
 
-/** MDS Dropdown Menu: elevated, 4px, Inter rows, destructive items in error red. */
+/** Dropdown menu: elevated, 4px, Inter rows, destructive items in error red. */
 export function Dropdown({
   trigger,
   items,

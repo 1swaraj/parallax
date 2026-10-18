@@ -76,7 +76,7 @@ function ReplyContext({ post }: { post: PostView }) {
   );
 }
 
-/** A technical confirmation: the bracketed MDS Modal, destructive action first, Cancel beside it. */
+/** A technical confirmation: the bracketed modal, destructive action first, Cancel beside it. */
 function ConfirmDialog({ options, onClose }: { options: ConfirmOptions; onClose: () => void }) {
   const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => {

@@ -36,7 +36,7 @@ function Section({
   );
 }
 
-/** MDS Segmented Control: the active option is an elevated tile, not a color. */
+/** Segmented control: the active option is an elevated tile, not a color. */
 function SegmentedControl<T extends string>({
   options,
   value,
@@ -70,7 +70,7 @@ function SegmentedControl<T extends string>({
   );
 }
 
-/** MDS Selection Card, as a radio: brackets on hover, the focus border when selected. */
+/** Selection card, as a radio: brackets on hover, the focus border when selected. */
 function SelectionCard({
   selected,
   onSelect,

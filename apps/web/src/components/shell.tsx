@@ -225,7 +225,7 @@ function MobileNav() {
   );
 }
 
-/** MDS Search Input. */
+/** Search input. */
 export function SearchBox({
   initial = '',
   autoFocus = false,
@@ -422,7 +422,7 @@ function JoinBar() {
 
 const BANNER_KEY = 'parallax-network-banner-dismissed';
 
-/** MDS Announcement Banner, accent: Parallax runs on a test network, so data may be reset. */
+/** Announcement banner: Parallax runs on a test network, so data may be reset. */
 function NetworkBanner() {
   const [dismissed, setDismissed] = useState(true);
   useEffect(() => setDismissed(window.localStorage.getItem(BANNER_KEY) === '1'), []);

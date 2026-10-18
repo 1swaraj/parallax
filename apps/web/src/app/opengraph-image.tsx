@@ -5,13 +5,13 @@ export const alt = `${APP_NAME}: ${APP_TAGLINE}`;
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
-// Raw values: an image is rendered outside the page's CSS, so the MDS tokens are spelled out here.
+// Raw values: an image is rendered outside the page's CSS, so the tokens are spelled out here.
 const BG = '#FBFAF9';
 const INK = '#26262B';
 const MUTED = '#727285';
 const PURPLE = '#6E54FF';
 
-/** The default link preview: the mark, the name, what it is, on monad.xyz's dot grid. */
+/** The default link preview: the mark, the name, what it is, on the dot grid. */
 export default function Image() {
   return new ImageResponse(
     <div

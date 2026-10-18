@@ -34,7 +34,7 @@ function useUsernameTaken(username: string) {
   return { taken: query.data, checking: debounced !== username || query.isFetching };
 }
 
-/** MDS Input with a visible native label, a hint or an error under it, and an optional counter. */
+/** An input with a visible native label, a hint or an error under it, and an optional counter. */
 export function Field({
   label,
   value,
@@ -183,7 +183,7 @@ export function CreateAccountForm({ onCreated }: { onCreated?: () => void }) {
 
 const STEPS = ['Connect', 'Sign in', 'Create account'];
 
-/** MDS Steps Indicator: where the user is in the sign-in flow, and what remains. */
+/** Steps indicator: where the user is in the sign-in flow, and what remains. */
 function StepsIndicator({ current }: { current: number }) {
   return (
     <ol className="flex items-start" aria-label="Sign-in steps">
