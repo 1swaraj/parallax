@@ -171,23 +171,46 @@ export function memoryNonceStore(): NonceStore {
   };
 }
 
+/** How long a request waits for its relayer's lock, behind this instance's requests and then other instances'. */
+export const LOCK_WAIT_MS = 15_000;
+
 /**
  * Shared by every instance: a row per relayer, read and written in one transaction that holds an advisory lock on
- * it, broadcast included. A lock wait or a stuck holder (e.g. a frozen instance) times out instead of piling up.
+ * it, broadcast included. Within an instance, a relayer's requests take turns before asking for a connection, so the
+ * pool (`connection`, opened on first use) needs one per relayer, and requests waiting on one relayer don't hold the
+ * connections another needs. A lock wait or a stuck holder (e.g. a frozen instance) times out instead of piling up.
  */
-export function postgresNonceStore(sql: Sql, chainId: number): NonceStore {
+export function postgresNonceStore(
+  connection: () => Sql,
+  chainId: number,
+  waitMs = LOCK_WAIT_MS
+): NonceStore {
+  const turns = new Map<string, Promise<void>>();
   return {
     async locked<T>(
       relayer: Address,
       fn: (saved: NonceState | null) => Promise<{ save?: NonceState; value: T }>
     ): Promise<T> {
-      await migrate(sql);
       const key = relayer.toLowerCase();
+      const deadline = Date.now() + waitMs;
+      const previous = turns.get(key) ?? Promise.resolve();
+      let release!: () => void;
+      const turn = previous.then(() => new Promise<void>((resolve) => (release = resolve)));
+      turns.set(key, turn);
       try {
+        if (!(await settlesBy(previous, deadline))) {
+          throw busy();
+        }
+        const sql = connection();
+        await migrate(sql);
+        const lockTimeout = deadline - Date.now();
+        if (lockTimeout < 1) {
+          throw busy();
+        }
         // Wrapped: begin()'s result type unwraps arrays of promises, which a generic T can't go through.
         const { value } = await sql.begin(async (tx) => {
           await tx.unsafe(
-            "SET LOCAL lock_timeout = '15s'; SET LOCAL idle_in_transaction_session_timeout = '30s'"
+            `SET LOCAL lock_timeout = '${lockTimeout}ms'; SET LOCAL idle_in_transaction_session_timeout = '30s'`
           );
           await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`nonce:${chainId}:${key}`}, 0))`;
           const [row] = await tx<{ next_nonce: bigint; chain_nonce: bigint; progress_at: Date }[]>`
@@ -218,10 +241,35 @@ export function postgresNonceStore(sql: Sql, chainId: number): NonceStore {
         return value;
       } catch (error) {
         if ((error as { code?: string }).code === '55P03') {
-          throw new HttpError(503, 'The app is busy, try again in a moment');
+          throw busy();
         }
         throw error;
+      } finally {
+        // A request that gave up passes its turn on once the one before it is done.
+        void turn.then(() => {
+          if (turns.get(key) === turn) {
+            turns.delete(key);
+          }
+        });
+        void previous.then(() => release());
       }
     },
   };
+}
+
+function busy() {
+  return new HttpError(503, 'The app is busy, try again in a moment');
+}
+
+/** Whether `promise` settles before `deadline`. */
+async function settlesBy(promise: Promise<void>, deadline: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), deadline - Date.now());
+  });
+  try {
+    return await Promise.race([promise.then(() => true as const), late]);
+  } finally {
+    clearTimeout(timer);
+  }
 }

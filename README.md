@@ -52,6 +52,59 @@ chain from the browser doesn't scale.
 **Content.** Posts and profiles are Lens metadata (`text-only` 3.0.0, `account` 1.0.0), inline in the contentURI as a
 base64 `data:` URI, like the contracts' own token URIs, so there's no storage service to run.
 
+## Architecture
+
+```
+Browser
+ ├─ pages, /api/*          → Next.js on Vercel
+ │                             ├─ /api/signup, /api/relay, /api/profile → a relayer key → Monad RPC
+ │                             ├─ /api/auth/*, /api/likes/*             → session cookie, Postgres
+ │                             └─ /indexer/* (a rewrite)                → the indexer
+ └─ direct mode, wallet    → Monad RPC: Account.executeTransaction, no server
+
+Ponder indexer on Railway  ← Lens events from Monad RPC, and serves the app's reads
+Postgres on Railway        ← the indexer's tables, and the app's own in the lens_web schema
+```
+
+The web server is stateless apart from Postgres: sessions are encrypted cookies (iron-session), and what instances
+share lives in `lens_web`: relayer nonces, rate limits, the hourly gas budget, and likes. Without `DATABASE_URL`
+(local development), the same state lives in the process's memory.
+
+**A sponsored action, step by step** (`apps/web/src/lib/server/chain.ts`, `sendAsRelayer`):
+
+1. **Guards.** Sponsoring isn't paused and its limits are set; the request is JSON from the app's own origin; the
+   session signed in with SIWE. `/api/relay` only takes the calls the app makes (`sponsor.ts`), checks onchain that
+   the session's wallet still owns the Account and that the router is its manager, and rate-limits per Account.
+   Sign-ups are rate-limited per owner, per IP and overall.
+2. **Relayer.** The actor (the Account, or the owner for a sign-up) is hashed to one of `RELAYER_PRIVATE_KEYS`.
+3. **Simulation.** A revert costs nothing and comes back as the contract's error. The gas limit is the estimate plus
+   10% (Monad charges the limit, so it stays tight), refused over `SPONSOR_MAX_GAS_PER_TX` (`_PER_SIGNUP` for sign-ups).
+4. **Fees.** The fee cap is twice the base fee plus the tip: a transaction pays the base fee and tip, not its cap, and
+   one whose cap the base fee rises past would hold up its relayer (below).
+5. **Budget.** The gas limit is reserved in this hour's `SPONSOR_GAS_BUDGET_PER_HOUR`, or the action gets a 503.
+6. **Nonce and broadcast**, under the relayer's lock (below).
+7. **Receipt**, outside the lock, for up to 30s; past that the action answers 504 "sent, not confirmed". The budget
+   is settled to the receipt's `gasUsed`, and what the call created (a post id, an Account) is read from its logs.
+8. The browser waits for the indexer to reach the receipt's block, then refreshes.
+
+**Relayers and nonces** (`nonces.ts`, `relayers.ts`). Each key is one nonce sequence. An Account always goes through
+the same key, so its actions go out in order; different keys send in parallel, so throughput grows with the number
+of keys. For each relayer, Postgres keeps the next nonce to use, the chain's count last time it looked, and when that
+last moved. A request takes the relayer's lock, reads the chain's pending count, uses the larger of the two, broadcasts,
+saves, and lets go: many transactions per relayer are in flight at once, and nothing waits for a receipt under the lock.
+
+- **The lock.** A Postgres advisory lock per relayer orders requests across instances. Within an instance, a relayer's
+  requests queue in memory before asking for a connection, so each relayer holds at most one, from a pool of its own
+  (one connection per key). Requests waiting on a busy relayer can't take the connections other relayers, rate limits
+  and likes need. A request that waited 15s in all gets a 503.
+- **Recovery.** A nonce the node says is taken is skipped and the broadcast retried, up to 3 times; a gap goes back to
+  the chain's count; a nonce error for a transaction the node already has counts as sent. If the chain's count stays
+  behind ours for 30s without moving, a transaction was dropped and every later one waits behind it: the nonces are
+  reused from the chain's. A saved state far ahead of the chain, or a chain whose count went back, is a restarted
+  chain or a restored database, and is dropped at once.
+- **Throughput.** The lock is held for about four database round trips and two RPC calls: roughly 3 transactions per
+  second per key with Postgres in another region, 10 or more with Postgres and the RPC next to the functions.
+
 ## Run it locally
 
 Needs Node 22+, pnpm 10, [Foundry](https://getfoundry.sh) 1.8.0+ (for `anvil --network monad`), and a built checkout
@@ -134,7 +187,7 @@ Parallax runs as a Next.js app on Vercel (the pages and the relayer's API), and 
 | `RELAYER_PRIVATE_KEYS`              | Vercel, sensitive, Production only | Comma-separated relayer keys (`RELAYER_PRIVATE_KEY` for a single one)                                                     |
 | `SESSION_SECRET`                    | Vercel, sensitive                  | 32+ random characters (`openssl rand -hex 32`)                                                                            |
 | `DATABASE_URL`                      | Vercel, sensitive                  | Railway Postgres's `DATABASE_PUBLIC_URL` + `?sslmode=require`. Required: without it, sponsoring answers 503               |
-| `DATABASE_POOL_SIZE`                | Vercel                             | Connections per instance (5). Instances × size must fit Railway's `max_connections` (100 by default)                      |
+| `DATABASE_POOL_SIZE`                | Vercel                             | Connections per instance (5), and 1 per relayer. Instances × (size + relayers) must fit `max_connections` (Railway: 100)  |
 | `SPONSOR_GAS_BUDGET_PER_HOUR`       | Vercel                             | Gas all relayers may spend per hour, e.g. `500000000` (~51 MON at 102 gwei). Required: without it, sponsoring answers 503 |
 | `SPONSOR_MAX_GAS_PER_TX`            | Vercel                             | Highest gas limit one sponsored action may have (1500000). Over it: 400, the user can pay instead                         |
 | `SPONSOR_MAX_GAS_PER_SIGNUP`        | Vercel                             | The same for a sponsored sign-up (3000000)                                                                                |
@@ -168,8 +221,14 @@ calls `setRelayer(relayer, false)` (its Accounts get a 503 until the key is remo
   already on the target post or account; the gas cap bounds those.
 - **Gas accounting.** The budget counts the receipts' `gasUsed`. Monad charges the gas limit (estimate + 10%): if its
   receipts report the gas used, the budget undercounts the MON spent by up to 10%.
-- **Relayer throughput.** A relayer's nonce lock is held for a database read, two RPC calls and a write, so each key
-  sends a few transactions per second, more with the database and RPC in the functions' region. Add keys to scale.
+- **Relayer throughput.** Each key sends a few transactions per second (Architecture), so the number of keys sets the
+  ceiling. The figures are estimates: load-test on testnet (many Accounts posting at once per key) before picking how
+  many keys to run. Moving the chain's nonce read out of the lock would raise it further.
+- **Stuck transactions.** A transaction the node keeps but doesn't include holds up every later one from its relayer
+  (1/N of Accounts) until the 30s stall recovery: those actions answer 504 and may still go in later.
+- **Relayer balances.** Consensus on Monad runs ahead of execution, and checks a sender's in-flight gas against its
+  reserve balance. Keep each relayer well above it, not just above `RELAYER_MIN_BALANCE_MON`: a relayer whose
+  transactions are left out stalls like a stuck one.
 - **Lost broadcasts.** If the RPC accepts a transaction but its answer is lost (a timeout), the action is reported as
   failed though it may still go in, and a retry can duplicate it.
 - **Pausing isn't instant.** `RELAY_PAUSED` takes a redeploy on Vercel (about a minute); `setRelayer(…, false)` from

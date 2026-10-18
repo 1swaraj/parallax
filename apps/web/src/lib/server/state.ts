@@ -1,5 +1,5 @@
 import { CHAIN_ID } from '../config';
-import { database } from './db';
+import { database, nonceDatabase } from './db';
 import { gasBudgetPerHour } from './env';
 import { HttpError } from './guard';
 import {
@@ -37,7 +37,7 @@ export function serverState(): State {
           shared: true,
           rateLimiter: postgresRateLimiter(sql),
           gasBudget: postgresGasBudget(sql, CHAIN_ID),
-          nonces: postgresNonceStore(sql, CHAIN_ID),
+          nonces: postgresNonceStore(nonceDatabase, CHAIN_ID),
           likes: postgresLikeStore(sql, CHAIN_ID),
         }
       : {
