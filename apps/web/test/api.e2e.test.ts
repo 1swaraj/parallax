@@ -132,7 +132,7 @@ describe('the app server, sponsored', () => {
     });
     expect(username).toMatchObject({
       status: 400,
-      body: { error: "That action can't be sponsored" },
+      body: { error: "Parallax can't pay the fee of that action" },
     });
 
     const withRule = await bob.call('/api/relay', {
@@ -169,7 +169,7 @@ describe('the app server, sponsored', () => {
     });
     expect(withRule).toMatchObject({
       status: 400,
-      body: { error: "Posts with rules can't be sponsored" },
+      body: { error: "Parallax can't pay the fee of posts with rules" },
     });
 
     const badPicture = await alice.call('/api/profile', {

@@ -28,7 +28,10 @@ describe('sponsorship outside the local chain', () => {
     vi.stubEnv('SPONSOR_GAS_BUDGET_PER_HOUR', '');
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(missingSponsorSettings()).toEqual(['DATABASE_URL', 'SPONSOR_GAS_BUDGET_PER_HOUR']);
-    expect(refusal()).toMatchObject({ status: 503, message: "Sponsorship isn't configured" });
+    expect(refusal()).toMatchObject({
+      status: 503,
+      message: "Parallax can't pay network fees here yet. Pay from your wallet (Settings).",
+    });
 
     vi.stubEnv('DATABASE_URL', 'postgres://localhost/lens');
     expect(missingSponsorSettings()).toEqual(['SPONSOR_GAS_BUDGET_PER_HOUR']);
@@ -52,7 +55,8 @@ describe('sponsorship outside the local chain', () => {
     vi.stubEnv('RELAY_PAUSED', 'true');
     expect(refusal()).toMatchObject({
       status: 503,
-      message: 'Sponsored actions are paused, try again soon',
+      message:
+        "Parallax isn't paying network fees right now. Try again soon, or pay from your wallet (Settings).",
     });
   });
 });

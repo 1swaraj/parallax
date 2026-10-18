@@ -12,6 +12,7 @@ import {
   type Log,
 } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
+import { APP_NAME } from '../brand';
 import { chain, contracts, IS_LOCAL } from '../config';
 import { serverRpcUrl } from './env';
 import { HttpError } from './guard';
@@ -63,7 +64,7 @@ export async function sendAsRelayer<const abi extends Abi>(
   if (gas > maxGas) {
     throw new HttpError(
       400,
-      'This action needs more gas than the app sponsors. Pay the gas from your wallet (Settings).'
+      `This action costs more than ${APP_NAME} pays for. Pay its fee from your wallet (Settings).`
     );
   }
   const fees = await publicClient.estimateFeesPerGas({ chain: feeChain });
@@ -128,7 +129,10 @@ async function assertRelayerAllowed(target: Address, relayer: PrivateKeyAccount,
   });
   if (!allowed) {
     console.error(`Relayer ${relayer.address} isn't allowlisted on the SponsorRouter`);
-    throw new HttpError(503, 'Sponsored actions are unavailable right now, try again soon');
+    throw new HttpError(
+      503,
+      `${APP_NAME} can't pay network fees right now. Try again soon, or pay from your wallet (Settings).`
+    );
   }
 }
 

@@ -4,8 +4,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useConnection } from 'wagmi';
-import { APP_NAME } from '@/lib/brand';
-import { chain } from '@/lib/config';
+import { APP_NAME, APP_PITCH, APP_TAGLINE } from '@/lib/brand';
+import { EXPLORER_URL } from '@/lib/config';
 import {
   useLastSeenNotification,
   useProfile,
@@ -17,7 +17,7 @@ import {
 import { useLikesSeen, useUnreadLikes } from '@/lib/likes';
 import { useSession } from '@/lib/session';
 import { AccountRow, Avatar, handleOf } from './account';
-import { AccountMenu, LogOutButton } from './auth';
+import { AccountMenu, SignOutButton } from './auth';
 import { Icon, Logo, Wordmark, type IconName } from './icons';
 import { useAuthModal, useCompose } from './modals';
 import { ThemeToggle } from './theme';
@@ -78,7 +78,7 @@ function Sidebar() {
   const compose = useCompose();
   const openAuth = useAuthModal();
   return (
-    <header className="sticky top-0 hidden h-[calc(100dvh-var(--banner-h,0px))] shrink-0 flex-col justify-between py-2 sm:flex sm:w-[72px] xl:w-[248px]">
+    <header className="sticky top-0 hidden h-dvh shrink-0 flex-col justify-between py-2 sm:flex sm:w-[72px] xl:w-[248px]">
       <div className="flex flex-col gap-1 max-xl:items-center">
         <Link
           href="/"
@@ -144,7 +144,7 @@ function Sidebar() {
         </div>
       </div>
       <div className="max-xl:flex max-xl:justify-center">
-        {account ? <AccountMenu /> : owner ? <LogOutButton /> : null}
+        {account ? <AccountMenu /> : owner ? <SignOutButton /> : null}
       </div>
     </header>
   );
@@ -304,7 +304,7 @@ function WhoToFollow() {
   );
 }
 
-/** X's "What's happening": the hashtags most posted in the last day. */
+/** Trending: the hashtags most posted in the last day. */
 function Trends() {
   const { data } = useTrends();
   if (!data || data.length === 0) {
@@ -313,7 +313,7 @@ function Trends() {
   return (
     <section className="border border-border-default bg-bg-elevated" aria-labelledby="trends">
       <h2 id="trends" className="px-4 pt-4 pb-2 text-xl leading-7">
-        What&apos;s happening
+        Trending
       </h2>
       {data.map((trend, index) => (
         <Link
@@ -322,7 +322,7 @@ function Trends() {
           className="focus-ring block px-4 py-3 transition-colors duration-150 hover:bg-bg-hover"
         >
           <span className="mono-caps block text-[11px] leading-4 text-text-tertiary">
-            {String(index + 1).padStart(2, '0')} · Trending
+            {String(index + 1).padStart(2, '0')}
           </span>
           <span className="block truncate text-sm font-semibold text-text-primary">
             #{trend.tag}
@@ -341,22 +341,20 @@ function JoinCard() {
   const openAuth = useAuthModal();
   return (
     <section className="flex flex-col items-start gap-3 border border-border-default bg-bg-elevated p-4">
-      <h2 className="text-xl leading-7">New to {APP_NAME}?</h2>
-      <p className="text-sm text-text-secondary">
-        Pick a username and start posting. It&apos;s free: {APP_NAME} pays the network fees.
-      </p>
+      <h2 className="text-xl leading-7">New to {APP_NAME}</h2>
       <Button onClick={openAuth}>Create account</Button>
+      <p className="text-sm text-text-secondary">
+        Pick a username and start posting. Your followers come with you to any Lens app. It&apos;s
+        free.
+      </p>
     </section>
   );
 }
 
-/** Network metadata strip: what this runs on, in the system's mono voice. */
+/** Footer links: what this runs on, and the explorer to check it. */
 function NetworkStrip() {
   return (
     <footer className="flex flex-col gap-3 px-1 pb-6">
-      <p className="mono-caps text-[11px] leading-4 text-text-tertiary">
-        Built on Lens · {chain.name} · Chain ID {chain.id}
-      </p>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-tertiary">
         <a href="https://lens.xyz" target="_blank" rel="noreferrer" className="hover:underline">
           Lens Protocol
@@ -372,6 +370,11 @@ function NetworkStrip() {
         >
           Docs
         </a>
+        {EXPLORER_URL && (
+          <a href={EXPLORER_URL} target="_blank" rel="noreferrer" className="hover:underline">
+            Explorer
+          </a>
+        )}
         <ThemeToggle />
       </div>
     </footer>
@@ -382,7 +385,7 @@ function Aside() {
   const pathname = usePathname();
   const { account } = useSession();
   return (
-    <aside className="sticky top-0 hidden h-[calc(100dvh-var(--banner-h,0px))] w-[340px] shrink-0 flex-col gap-4 overflow-y-auto py-2 lg:flex">
+    <aside className="sticky top-0 hidden h-dvh w-[340px] shrink-0 flex-col gap-4 overflow-y-auto py-2 lg:flex">
       {pathname !== '/explore' && <SearchBox />}
       {!account && <JoinCard />}
       <Trends />
@@ -406,55 +409,13 @@ function JoinBar() {
     <div className="fixed inset-x-0 bottom-[calc(56px+env(safe-area-inset-bottom))] z-30 border-t border-border-default bg-bg-elevated sm:bottom-0">
       <div className="mx-auto flex max-w-[960px] items-center justify-between gap-4 px-4 py-3">
         <div className="min-w-0">
-          <p className="font-display text-lg leading-7 font-medium">Your audience, onchain.</p>
-          <p className="hidden text-sm text-text-secondary sm:block">
-            On {APP_NAME}, your followers and posts are Lens data on Monad. Any Lens app can read
-            them, and no app can take them away.
-          </p>
+          <p className="font-display text-lg leading-7 font-medium">{APP_TAGLINE}</p>
+          <p className="hidden text-sm text-text-secondary sm:block">{APP_PITCH}</p>
         </div>
         <Button variant="primary" onClick={openAuth}>
           Join {APP_NAME}
         </Button>
       </div>
-    </div>
-  );
-}
-
-const BANNER_KEY = 'parallax-network-banner-dismissed';
-
-/** Announcement banner: Parallax runs on a test network, so data may be reset. */
-function NetworkBanner() {
-  const [dismissed, setDismissed] = useState(true);
-  useEffect(() => setDismissed(window.localStorage.getItem(BANNER_KEY) === '1'), []);
-  const visible = !dismissed && !!chain.testnet;
-  useEffect(() => {
-    document.documentElement.style.setProperty('--banner-h', visible ? '40px' : '0px');
-  }, [visible]);
-  if (!visible) {
-    return null;
-  }
-  return (
-    <div className="relative flex h-10 items-center justify-center gap-3 bg-accent-primary px-12 text-text-on-accent">
-      <span className="rounded-full bg-bg-inverse px-2 py-0.5 font-mono text-[9px] leading-[11px] font-medium tracking-[1.5px] text-text-inverse uppercase">
-        Testnet
-      </span>
-      <p className="mono-caps truncate text-[11px] leading-4">
-        <span className="max-sm:hidden">
-          {APP_NAME} runs on {chain.name}. Accounts and posts may be reset before mainnet.
-        </span>
-        <span className="sm:hidden">Data may be reset</span>
-      </p>
-      <button
-        type="button"
-        aria-label="Dismiss"
-        onClick={() => {
-          window.localStorage.setItem(BANNER_KEY, '1');
-          setDismissed(true);
-        }}
-        className="focus-ring absolute right-3 grid h-8 w-8 place-items-center rounded-sm hover:bg-[rgba(255,255,255,0.12)]"
-      >
-        <Icon name="close" size={14} />
-      </button>
     </div>
   );
 }
@@ -514,7 +475,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
       >
         Skip to content
       </a>
-      <NetworkBanner />
       <div className="dot-grid mx-auto flex min-h-dvh max-w-[1264px] justify-center gap-6 sm:px-4">
         <Sidebar />
         <main

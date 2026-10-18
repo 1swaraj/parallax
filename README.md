@@ -21,7 +21,7 @@ scripts/          Local node + deployment, seed data, ABI and address book sync
 - **Likes:** the heart, likes counts, and a private Likes tab. Lens V3 has no onchain likes, so these are Parallax's
   own, kept by its server, and other Lens apps don't see them.
 - **Notifications:** follows, likes (grouped), replies, reposts, quotes and mentions, with an unread badge.
-- **Explore:** people search, post search, hashtag search, and "What's happening" (the last week's hashtags).
+- **Explore:** people search, post search, hashtag search, and "Trending" (the last week's hashtags).
 - **Accounts:** connect, sign in with one free signature (SIWE), and pick a username. The first account is free.
 - **Settings:** edit profile, light or dark mode, and who pays network fees.
 
@@ -224,7 +224,7 @@ Three things have to agree for a sponsored action to go through:
   functions it may call for an Account (`setFunction`). `DeployLaunch` sets both: the relayers from `RELAYERS`, and the
   functions from `script/SponsoredFunctions.sol` (posting, editing and deleting, following, usernames, blocking).
 - **The Account** has the router as an account manager, allowed to execute transactions and set metadata, never to
-  move funds. Sign-ups through Parallax add it. An Account made elsewhere gets it from Settings → "Allow sponsorship",
+  move funds. Sign-ups through Parallax add it. An Account made elsewhere gets it from Settings → "Let Parallax pay",
   which the user's wallet sends (`addAccountManager`) and pays for once. Users can revoke it any time.
 - **The app** holds the relayer keys, and narrows what it relays to what its client sends (`sponsor.ts`): posts
   without rules, deletes, follows, blocks and profile edits. Sign-ups don't go through the router: the relayer calls
