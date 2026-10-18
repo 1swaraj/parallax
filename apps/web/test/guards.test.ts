@@ -1,9 +1,9 @@
-// The request guards that don't need a chain: sign-up IP buckets, SIWE freshness, the health token, the session
-// secret, and sponsorship's settings on the local chain.
+// The request guards that don't need a chain: same-origin writes, sign-up IP buckets, SIWE freshness, the health
+// token, the session secret, and sponsorship's settings on the local chain.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { missingSponsorSettings, sessionSecret } from '../src/lib/server/env';
-import { assertSponsorshipAvailable } from '../src/lib/server/guard';
+import { assertSameOrigin, assertSponsorshipAvailable } from '../src/lib/server/guard';
 import { canSeeHealthDetails } from '../src/lib/server/health';
 import { clientIpKey } from '../src/lib/server/requests';
 import { isFreshSignIn, NONCE_TTL_MS } from '../src/lib/server/session';
@@ -17,6 +17,46 @@ function from(forwardedFor?: string) {
     headers: forwardedFor === undefined ? {} : { 'x-forwarded-for': forwardedFor },
   });
 }
+
+function write(origin: string | null, headers: Record<string, string> = {}) {
+  return new Request('http://localhost:3000/api/auth/verify', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(origin ? { origin } : {}),
+      ...headers,
+    },
+  });
+}
+
+describe('assertSameOrigin', () => {
+  it('takes writes from the host the request names, and refuses other origins', () => {
+    expect(() =>
+      assertSameOrigin(write('http://localhost:3000', { host: 'localhost:3000' }))
+    ).not.toThrow();
+    expect(() =>
+      assertSameOrigin(
+        write('https://app.example', { host: 'localhost:3000', 'x-forwarded-host': 'app.example' })
+      )
+    ).not.toThrow();
+    expect(() =>
+      assertSameOrigin(write('https://evil.example', { host: 'localhost:3000' }))
+    ).toThrow('Cross-origin request');
+    expect(() => assertSameOrigin(write(null, { host: 'localhost:3000' }))).toThrow(
+      'Cross-origin request'
+    );
+  });
+
+  it("trusts the app's URL over Host, for proxies that don't forward it", () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://preview.example');
+    expect(() =>
+      assertSameOrigin(write('https://preview.example', { host: 'localhost:3000' }))
+    ).not.toThrow();
+    expect(() =>
+      assertSameOrigin(write('http://localhost:3000', { host: 'localhost:3000' }))
+    ).toThrow('Cross-origin request');
+  });
+});
 
 describe('clientIpKey', () => {
   it('keeps IPv4 addresses, the first of a forwarded list', () => {

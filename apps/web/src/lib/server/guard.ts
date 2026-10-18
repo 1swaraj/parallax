@@ -1,7 +1,7 @@
 import { describeLensError, lensErrorName } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
 import { APP_NAME } from '../brand';
-import { booleanEnv, missingSponsorSettings } from './env';
+import { appUrl, booleanEnv, missingSponsorSettings } from './env';
 
 export class HttpError extends Error {
   constructor(
@@ -14,11 +14,14 @@ export class HttpError extends Error {
 
 /**
  * The session cookie is SameSite=Lax, and state-changing routes only accept JSON from the app's own origin, so other
- * sites can't make a signed-in user's browser post or follow.
+ * sites can't make a signed-in user's browser post or follow. The app's own host is NEXT_PUBLIC_APP_URL's when it's
+ * set, as for sign-in messages: behind a proxy that doesn't forward it (a tunnel, a preview URL), Host names the
+ * server instead.
  */
 export function assertSameOrigin(request: Request) {
   const origin = request.headers.get('origin');
-  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
+  const host =
+    appUrl()?.host ?? request.headers.get('x-forwarded-host') ?? request.headers.get('host');
   if (!origin || !host || new URL(origin).host !== host) {
     throw new HttpError(403, 'Cross-origin request');
   }
