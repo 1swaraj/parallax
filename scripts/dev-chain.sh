@@ -19,7 +19,7 @@ fi
 
 # The clock starts 5 days back, so the seed can spread its posts over the last few days; seeding (or SEED=0) then
 # brings it back to the wall clock.
-anvil --network monad --auto-impersonate --port 8545 --silent --timestamp $(($(date +%s) - 5 * 86400)) &
+anvil --network monad --auto-impersonate --enable-tx-gas-limit --port 8545 --silent --timestamp $(($(date +%s) - 5 * 86400)) &
 ANVIL_PID=$!
 trap 'kill $ANVIL_PID 2>/dev/null' EXIT INT TERM
 
@@ -27,8 +27,14 @@ until cast chain-id --rpc-url "$RPC" >/dev/null 2>&1; do sleep 0.2; done
 
 (
   cd "$CONTRACTS"
+  export MIGRATION_MODE=false
+  export ADDRESS_BOOK=deployments/31337.json
+  # This node is fresh. Discard the previous local run's book before promoting its replacement.
+  rm -f "$ADDRESS_BOOK" "$ADDRESS_BOOK.pending"
   forge script script/DeployMonad.s.sol --rpc-url "$RPC" --unlocked --sender "$DEPLOYER" --broadcast --silent
+  forge script script/PromoteAddressBook.s.sol --rpc-url "$RPC" --silent
   forge script script/DeployLaunch.s.sol --rpc-url "$RPC" --unlocked --sender "$DEPLOYER" --broadcast --silent
+  forge script script/PromoteAddressBook.s.sol --rpc-url "$RPC" --silent
   # The launch starts closed (the preload gates); locally the deployer is the Safe, so it opens it right away.
   forge script script/ActivateLaunch.s.sol --rpc-url "$RPC" --unlocked --sender "$DEPLOYER" --broadcast --silent
 )

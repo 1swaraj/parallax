@@ -113,7 +113,7 @@ export function Field({
 export function CreateAccountForm({ onCreated }: { onCreated?: () => void }) {
   const toast = useToast();
   const { signUp } = useLensActions();
-  const [gasMode] = useGasMode();
+  const [gasMode, setGasMode] = useGasMode();
   const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');
@@ -167,6 +167,27 @@ export function CreateAccountForm({ onCreated }: { onCreated?: () => void }) {
         maxLength={MAX_BIO_CHARACTERS}
         multiline
       />
+      <fieldset disabled={create.isPending} className="flex flex-col gap-2 text-sm">
+        <legend className="mb-2 text-text-secondary">Who pays network fees?</legend>
+        <label className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="signup-gas-mode"
+            checked={gasMode === 'sponsored'}
+            onChange={() => setGasMode('sponsored')}
+          />
+          {APP_NAME} pays (when available)
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="signup-gas-mode"
+            checked={gasMode === 'direct'}
+            onChange={() => setGasMode('direct')}
+          />
+          Pay from my wallet (MON)
+        </label>
+      </fieldset>
       <div className="flex items-center justify-between gap-4">
         <p className="text-xs text-text-tertiary">
           {gasMode === 'sponsored'

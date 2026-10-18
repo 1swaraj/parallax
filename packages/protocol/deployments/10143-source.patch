@@ -1,0 +1,19 @@
+diff --git a/contracts/core/upgradeability/LensCreate2.sol b/contracts/core/upgradeability/LensCreate2.sol
+index 01afec3..422ac92 100644
+--- a/contracts/core/upgradeability/LensCreate2.sol
++++ b/contracts/core/upgradeability/LensCreate2.sol
+@@ -9,11 +9,10 @@ import {Ownable} from "contracts/core/access/Ownable.sol";
+ import {Errors} from "contracts/core/types/Errors.sol";
+ import {Initializable} from "contracts/core/upgradeability/Initializable.sol";
+ 
+-// TODO: PLACEHOLDER deployer, nobody holds its key. Replace it with the deployer owning the deployment, and replace
+-// LENS_CREATE_2_ADDRESS with its [0] nonce CREATE address (`cast compute-address <deployer> --nonce 0`).
+-address constant LENS_CREATE_2_DEPLOYER = 0x000000000000000000000000000000000000dEaD;
++// Monad testnet deployment: the bootstrap wallet creates LensCreate2 at nonce zero.
++address constant LENS_CREATE_2_DEPLOYER = 0xE85Bc2358DAC48db42Fe381490034d543E8c53dc;
+ // If using the [0] nonce of LENS_CREATE_2_DEPLOYER:
+-address constant LENS_CREATE_2_ADDRESS = 0x9B137463d4E7986D7f535f9B79e28b4EF1938E9b;
++address constant LENS_CREATE_2_ADDRESS = 0xc64b13C94FA90F462986Ce4E4C0e6aE522C69392;
+ 
+ interface ILensCreate2 {
+     function getAddress(bytes32 salt) external view returns (address);
