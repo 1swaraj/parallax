@@ -1,4 +1,4 @@
-import { accountAbi, lensErrorName, sponsorRouterAbi } from '@lens-monad/protocol';
+import { accountAbi, gasLimit, lensErrorName, sponsorRouterAbi } from '@lens-monad/protocol';
 import {
   createPublicClient,
   encodeFunctionData,
@@ -69,7 +69,7 @@ export async function sendAsRelayer<
     await assertRelayerAllowed(call.address, relayer, error);
     throw error;
   }
-  const gas = ((await publicClient.estimateContractGas(params)) * 110n) / 100n;
+  const gas = gasLimit(await publicClient.estimateContractGas(params));
   // E.g. rules on a replied-to post, or a follow rule, that the caller chose to make expensive.
   if (gas > maxGas) {
     throw new HttpError(

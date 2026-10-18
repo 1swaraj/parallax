@@ -22,7 +22,8 @@ scripts/          Local node + deployment, seed data, ABI and address book sync
   own, kept by its server, and other Lens apps don't see them.
 - **Notifications:** follows, likes (grouped), replies, reposts, quotes and mentions, with an unread badge.
 - **Explore:** people search, post search, hashtag search, and "Trending" (the last week's hashtags).
-- **Accounts:** connect, sign in with one free signature (SIWE), and pick a username. The first account is free.
+- **Accounts:** connect a wallet or use a passkey, sign in with one free signature (SIWE), and pick a username. The
+  first account is free.
 - **Settings:** edit profile, light or dark mode, and who pays network fees.
 
 ## How it works
@@ -31,6 +32,17 @@ scripts/          Local node + deployment, seed data, ABI and address book sync
 `LensFactory.createAccountWithUsernameFree`: it creates the Account, gives it a username in the global `lens`
 Namespace, adds the `SponsorRouter` as account manager (`canExecuteTransactions` and `canSetMetadataURI`, nothing that
 moves funds), then hands the Account to the user's wallet.
+
+**Passkeys.** People without a wallet can use a passkey instead ([mera](https://mera.category.xyz),
+`apps/web/src/lib/passkey.ts`): the passkey's PRF output seeds an EOA, so the same passkey brings back the same account
+on every device it syncs to, with no seed phrase and no key on a server. Only apps that derive the key the same way
+(`passkey-account.ts`) get that account from the passkey, so the derivation can't change. "Create an account with a
+passkey" makes one, "Sign in with a passkey" uses one. The key lives in the page's memory from the first signature until
+the page closes or the user signs out, and the code that derives it loads only once a passkey prompt is open. After a
+reload the app knows the address without asking, and asks for the passkey only when something needs a signature; once
+signed in, sponsored actions don't. Passkeys belong to the site's domain, so an account made on one domain (or on
+`localhost`) doesn't exist on another. The password manager has to support the PRF extension: iCloud Keychain, Google
+Password Manager and 1Password do. `NEXT_PUBLIC_PASSKEYS=false` turns it off.
 
 **Writes.** Every action is a call the Account makes (`packages/protocol/src/calls.ts`): `Feed.createPost`,
 `Graph.follow`, `AccountBlockingRule.blockUser`… The primitives check that the Account is the author, follower or
@@ -144,6 +156,7 @@ pnpm test:e2e                                 # protocol flow against the local 
 pnpm --filter @lens-monad/indexer test:e2e    # the indexer's API (chain and indexer running)
 pnpm --filter @lens-monad/web test:e2e        # the app's server end to end (chain, indexer and web running)
 node apps/web/test/ui/walkthrough.mjs         # the UI in Chromium: sign up, post, reply, follow, dark mode, mobile
+node apps/web/test/ui/passkey.mjs             # passkey accounts, with Chrome's virtual authenticator
 ```
 
 The web end-to-end tests read `/api/health`'s details, so run them with the server's `HEALTH_TOKEN` set. The UI
@@ -190,6 +203,7 @@ Parallax runs as a Next.js app on Vercel (the pages and the relayer's API), and 
 | `NEXT_PUBLIC_RPC_URL`                  | Vercel                             | The RPC browsers use. Public: no unrestricted API key                                                                     |
 | `NEXT_PUBLIC_APP_URL`                  | Vercel, Production only            | The app's public URL: sign-in messages must name its host. Read at build time                                             |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Vercel                             | A Reown project ID: adds WalletConnect to sign-in, for phones. Allowlist the app's domains in Reown. Read at build time   |
+| `NEXT_PUBLIC_PASSKEYS`                 | Vercel                             | `false` hides the passkey sign-in (Passkeys, above). On by default. Read at build time                                    |
 | `RPC_URL`                              | Vercel, sensitive                  | The server's RPC, e.g. a paid one. The public testnet RPC rate-limits per IP, which Vercel shares                         |
 | `INDEXER_URL`                          | Vercel, for builds too             | The indexer's public URL. The `/indexer` proxy is compiled in: changing it takes a redeploy                               |
 | `RELAYER_PRIVATE_KEYS`                 | Vercel, sensitive, Production only | Comma-separated relayer keys (`RELAYER_PRIVATE_KEY` for a single one)                                                     |

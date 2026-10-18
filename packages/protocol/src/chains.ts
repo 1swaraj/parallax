@@ -16,6 +16,14 @@ export const CHAINS = {
   [monad.id]: monad,
 } as const;
 
+/**
+ * The gas limit to send a call with: the estimate plus 10%. Monad charges the gas limit, not the gas used
+ * (https://docs.monad.xyz/developer-essentials/gas-pricing), so the margin stays small.
+ */
+export function gasLimit(estimate: bigint) {
+  return (estimate * 110n) / 100n;
+}
+
 export function getChain(chainId: number) {
   const chain = CHAINS[chainId as keyof typeof CHAINS];
   if (!chain) {

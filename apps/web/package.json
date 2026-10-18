@@ -13,7 +13,10 @@
     "test:e2e": "vitest run e2e.test.ts"
   },
   "dependencies": {
+    "@category-labs/mera": "^0.2.0",
     "@lens-monad/protocol": "workspace:*",
+    "@scure/bip32": "2.2.0",
+    "@scure/bip39": "2.2.0",
     "@tanstack/react-query": "^5.90.0",
     "@walletconnect/ethereum-provider": "^2.26.0",
     "iron-session": "^8.0.0",

@@ -3,7 +3,7 @@
 import { useConnect, useConnection, useConnectors } from 'wagmi';
 import { APP_NAME, APP_TAGLINE } from '@/lib/brand';
 import { useSession } from '@/lib/session';
-import { connectErrorToast, connectorName, SignOutButton } from './auth';
+import { connectErrorToast, connectorAction, connectorIcon, SignOutButton } from './auth';
 import { FooterLinks } from './footer-links';
 import { Wordmark } from './brand';
 import { Icon } from './icons';
@@ -67,10 +67,10 @@ export function Landing() {
                     )
                   }
                 >
-                  <Icon name="wallet" size={16} />
+                  <Icon name={connectorIcon(connector)} size={16} />
                   {isPending && variables?.connector === connector
                     ? 'Connecting…'
-                    : `Continue with ${connectorName(connector)}`}
+                    : connectorAction(connector)}
                 </Button>
               ))
             )}
