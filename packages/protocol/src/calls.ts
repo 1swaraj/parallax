@@ -178,6 +178,7 @@ export const SPONSOR_ROUTER_PERMISSIONS = {
   canSetMetadataURI: true,
 } as const;
 
+/** No app's source stamp: e.g. Account.setMetadataURI then sets the Account's default metadata, not an app's. */
 export const EMPTY_SOURCE_STAMP = {
   source: zeroAddress,
   originalMsgSender: zeroAddress,

@@ -8,6 +8,8 @@ import {
   WaitForTransactionReceiptTimeoutError,
   type Abi,
   type Address,
+  type ContractFunctionArgs,
+  type ContractFunctionName,
   type Hex,
   type Log,
 } from 'viem';
@@ -45,13 +47,21 @@ const RECEIPT_TIMEOUT_MS = 30_000;
  * What the call created is in the receipt's logs: the simulation's return value is a guess that concurrent
  * transactions make wrong (e.g. the address of an Account, which the factory derives from its nonce).
  */
-export async function sendAsRelayer<const abi extends Abi>(
-  call: { address: Address; abi: abi; functionName: string; args: readonly unknown[] },
+export async function sendAsRelayer<
+  const abi extends Abi,
+  functionName extends ContractFunctionName<abi, 'nonpayable' | 'payable'>,
+>(
+  call: {
+    address: Address;
+    abi: abi;
+    functionName: functionName;
+    args: ContractFunctionArgs<abi, 'nonpayable' | 'payable', functionName>;
+  },
   actor: Address,
   maxGas: bigint
 ): Promise<{ hash: Hex; blockNumber: bigint; logs: Log[] }> {
   const relayer = relayerFor(actor);
-  // The generic contract types don't narrow through this helper's signature; callers pass ABI-checked calls.
+  // Callers' calls are checked against the ABI above; viem's generic types don't narrow through the helper.
   const params = { ...call, account: relayer } as never;
   try {
     await publicClient.simulateContract(params);
