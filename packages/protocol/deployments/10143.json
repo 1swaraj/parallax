@@ -1,0 +1,292 @@
+{
+  "AccessControlFactory": {
+    "address": "0x532D96979d2836e73ADdd884BC586fb95314ce9e"
+  },
+  "AccessControlFactoryImpl": {
+    "address": "0x08eeaF98651e89D2F9A2C3b702D4c77A6C4feA52"
+  },
+  "AccessControlLock": {
+    "address": "0x1C270F8fe71837DBA97e95E8c5a96E86C14E9A5c"
+  },
+  "AccountBeacon": {
+    "address": "0xD024289D3B7c8C53464b1Ee6BAb1603EEF2e54A7"
+  },
+  "AccountBlockingRule": {
+    "address": "0x371B5433098B14E16B39544eb4270B5DB092D4D0"
+  },
+  "AccountBlockingRuleImpl": {
+    "address": "0x225C258a9adf45374820397910189311201AaA7a"
+  },
+  "AccountFactory": {
+    "address": "0x3badc3B2211D831d1a80401f04d2F912935FbC37"
+  },
+  "AccountFactoryImpl": {
+    "address": "0x736Cb3c330b3F957d0a6c8537135B4e21c91baD4"
+  },
+  "AccountImpl": {
+    "address": "0x7A614E6eD001Fed581186321357CFF926c28c06B"
+  },
+  "AccountLock": {
+    "address": "0x9d99A1A9D6efCdaFc91C9345A1c9d5F9c41E8a7A"
+  },
+  "ActionHub": {
+    "address": "0x238ee346b19294Eb7E4d35BAed84A4604ad17C2A"
+  },
+  "ActionHubImpl": {
+    "address": "0x58224F305d7a393afA2316bD873cA0DAF929941e"
+  },
+  "AdditionRemovalPidGroupRule": {
+    "address": "0x17749FDD8A81A8a7dffd325846F908d7C3a3d84C"
+  },
+  "AdditionRemovalPidGroupRuleImpl": {
+    "address": "0x350947742C0E77631B1BFaB0bAe37b3d93a68785"
+  },
+  "AppBeacon": {
+    "address": "0x5ecaCe300D2370F98d79D0A488e1831F221696Ec"
+  },
+  "AppFactory": {
+    "address": "0x4CdD605819661D563656D2BEb4fBf80679809462"
+  },
+  "AppFactoryImpl": {
+    "address": "0xb6C6527acc4ab0F0Bd03C58EA1DEFD5715140C0f"
+  },
+  "AppImpl": {
+    "address": "0xA816a53FBe70A85a855F146059fD4C6F6EF81a20"
+  },
+  "AppLock": {
+    "address": "0x1F8535c144e51df6E534AF889C9fC3a2fEb7A195"
+  },
+  "BanMemberGroupRule": {
+    "address": "0xcdDcF62B173D24AA396c7b7252837D8feBEdb441"
+  },
+  "BanMemberGroupRuleImpl": {
+    "address": "0x2aDaCCC3E1013F868a5e73f2F8F06Bee1Dc9B748"
+  },
+  "FeedBeacon": {
+    "address": "0xE852D311E36779bc3E00Ca87270813AEEF066aC5"
+  },
+  "FeedFactory": {
+    "address": "0x74F45771C2c377eF953698D8AC604EdC43e684d1"
+  },
+  "FeedFactoryImpl": {
+    "address": "0xA8654DFc26BF42b363db1C218d417dc07EfE0D03"
+  },
+  "FeedImpl": {
+    "address": "0x84b19a2243B8001095C68F1dE773fAB577EB5E26"
+  },
+  "FeedLock": {
+    "address": "0xBC2fF0c888cF4524c0Cc501cfCaD157c4e3f4B3A"
+  },
+  "FollowersOnlyPostRule": {
+    "address": "0x113B98cd381e22D124EA58986dc5dCE78Dd941d2"
+  },
+  "FollowersOnlyPostRuleImpl": {
+    "address": "0x9cECF935f9f94f1d95f874D5c639E17eFcF83d46"
+  },
+  "GraphBeacon": {
+    "address": "0x730b64A140C73477C6D9e4b86f5aC8e42C0aA1FF"
+  },
+  "GraphFactory": {
+    "address": "0xaf6E8E287400cA6A97B9A82981cA8a188E400A68"
+  },
+  "GraphFactoryImpl": {
+    "address": "0x84AF250C5549Bca65c58d673019410bd5af390e8"
+  },
+  "GraphImpl": {
+    "address": "0x703C9e30a190FE8591A9E844C9e3EF4907687FE1"
+  },
+  "GraphLock": {
+    "address": "0x4e7a3b5CbD68a411AE81D3A3B11FD99441F41903"
+  },
+  "GroupBeacon": {
+    "address": "0x973e62e42ab9A8448B6Af527606506DACE98703e"
+  },
+  "GroupFactory": {
+    "address": "0x08BcEcadC9376506e7fB60922F31B2C4A4785B59"
+  },
+  "GroupFactoryImpl": {
+    "address": "0x7B4ff7B8d77F2bAF5c5413a3243a7A81e75e1002"
+  },
+  "GroupGatedFeedRule": {
+    "address": "0x88dA0400f789fC48E341a36c4B840d14CdfA585a"
+  },
+  "GroupGatedFeedRuleImpl": {
+    "address": "0x6C16fBd5a43A972b76e523778951781A4e38f673"
+  },
+  "GroupGatedGraphRule": {
+    "address": "0xa9Af8959823680CcaDD7850EF0b9fa34275A6c49"
+  },
+  "GroupGatedGraphRuleImpl": {
+    "address": "0x07Af37dBcA2a186B435aA9300bBC09AE5b608239"
+  },
+  "GroupImpl": {
+    "address": "0xE899dE77F9D5f41d679CCBfD22f50A8bF70064ff"
+  },
+  "GroupLock": {
+    "address": "0xD79315B35936Ef57F1BdF88dDD7837CAD48292c0"
+  },
+  "LensCreate2": {
+    "address": "0xc64b13C94FA90F462986Ce4E4C0e6aE522C69392"
+  },
+  "LensCreate2Impl": {
+    "address": "0xBBBb0E1dB64fE400b1D41E7226c3bA57b8883961"
+  },
+  "LensFactory": {
+    "address": "0x0957046f904A866200d410bedEB8B62bFd16B8cc"
+  },
+  "LensFactoryImpl": {
+    "address": "0xB18DCd093323e88dcB7ad975C23600E188C1631A"
+  },
+  "LensFees": {
+    "address": "0x950832558BF0C1E7C12ce6989dF1FfcB245F9CC9"
+  },
+  "LensFeesImpl": {
+    "address": "0x44d1f52Fbc050a3D94c8f68e80DDa03d0bfFcCf7"
+  },
+  "LensGlobalFeed": {
+    "address": "0xbE0051Ad59A57776Eba7180C6Ba1A69da6a6069b"
+  },
+  "LensGlobalGraph": {
+    "address": "0x984471850A114F2252316539DCae487580650CD4"
+  },
+  "LensGlobalNamespace": {
+    "address": "0x28c2788C71187AA905025Ed081e2bf4d18AF9f5b"
+  },
+  "LensNativePaymentHelper": {
+    "address": "0x19EFa84F4d2360C40c19A710C64aC46f1B0df8c2"
+  },
+  "LensNativePaymentHelperImpl": {
+    "address": "0xCfdfB0CbD1fE5446ED8F39F829706614BBA08b31"
+  },
+  "MembershipApprovalGroupRule": {
+    "address": "0x9e545308e11bf62d3056156dbE3FcCaBeE7D7887"
+  },
+  "MembershipApprovalGroupRuleImpl": {
+    "address": "0xFf73eD024F5Da46F774e9C27b83Cb0EC9eDFE4Ef"
+  },
+  "NamespaceBeacon": {
+    "address": "0x96446c31A48E5300c34F30aA15B130d7a9DFa2Ea"
+  },
+  "NamespaceDeployer": {
+    "address": "0x9D52fA5243EE6D7E50977c7fa37A17006a3CA8a9"
+  },
+  "NamespaceFactory": {
+    "address": "0x9aDdfBC24167585758FCA0C6f422786eCC789D00"
+  },
+  "NamespaceFactoryImpl": {
+    "address": "0x88D7f1aD9e14D039aAAef7e045abC7a83EcCBC4E"
+  },
+  "NamespaceImpl": {
+    "address": "0x8F1cFA65CeB4841092Ced3108cE57DD8edcCBd26"
+  },
+  "NamespaceLock": {
+    "address": "0x0b2Eb83E614d27B27EE0f27D66BBDFC7A68bC21B"
+  },
+  "ReferenceApp": {
+    "address": "0x486ca74E23DA8d8Fcc1aa26ad8740be69d20C87b"
+  },
+  "Safe": {
+    "address": "0xa01ab5BC6c3e39BfAEE63efdFba29555F5453A4c"
+  },
+  "SimpleCollectAction": {
+    "address": "0xAEd2eA2CE597121316cb3A7e37ff70992f8FF5A3"
+  },
+  "SimpleCollectActionImpl": {
+    "address": "0xc6618565F89fB3D9EA7E213A854cde05B9B40897"
+  },
+  "SimplePaymentFeedRule": {
+    "address": "0x30450Af965019C033d156AfE986293F8E07F8bAE"
+  },
+  "SimplePaymentFeedRuleImpl": {
+    "address": "0x159746c1D90cc8fBd9Be37914619D40Fb9461bfE"
+  },
+  "SimplePaymentFollowRule": {
+    "address": "0x98112810c97aEAF4F511Ab2b8820c291631B449D"
+  },
+  "SimplePaymentFollowRuleImpl": {
+    "address": "0xA5cC73c9dc62183caCe25beBaA9b3591dd6C1eBB"
+  },
+  "SimplePaymentGroupRule": {
+    "address": "0x39b550145Ea70aBFf924918E620DD48b12cF6BD4"
+  },
+  "SimplePaymentGroupRuleImpl": {
+    "address": "0xCdFBbC6A187Da0675ccB68b5eA06AEEe2BE3959B"
+  },
+  "SponsorRouter": {
+    "address": "0xE7da6c231A7fE4fCBDd9915e244AE08D75C51009"
+  },
+  "SponsorRouterImpl": {
+    "address": "0xeb612aA4EE2634A8695E57D5cd0427054C9D3bF5"
+  },
+  "TippingAccountAction": {
+    "address": "0x84D38AB89D3a9B2030c8Ef2B16cdEec13eD61834"
+  },
+  "TippingAccountActionImpl": {
+    "address": "0xC1e8DE3BA734f27f3751b3289a439D2794115E22"
+  },
+  "TippingPostAction": {
+    "address": "0x27Cab573c4d30366ac5489549A8d452CA4FC4923"
+  },
+  "TippingPostActionImpl": {
+    "address": "0x170B14FB0b9bc9356E522f91AD539663370538B9"
+  },
+  "TokenGatedFeedRule": {
+    "address": "0x5C4A94d209CbE7032Da59C668262c2684aD581E9"
+  },
+  "TokenGatedFeedRuleImpl": {
+    "address": "0xA646C85f6Fa0a45FdBa831ca8F0ba37234C4F1FE"
+  },
+  "TokenGatedFollowRule": {
+    "address": "0xb4D53A3d0F76A56B7C2dB4dE7b2b7d1396B95F68"
+  },
+  "TokenGatedFollowRuleImpl": {
+    "address": "0x55a5C74a2378a51765B0B5891e20744a48f9fb30"
+  },
+  "TokenGatedGraphRule": {
+    "address": "0x20e0323649E1eE1fb374FC314992e0ca1E4F3849"
+  },
+  "TokenGatedGraphRuleImpl": {
+    "address": "0xf246610064A194671a52d1EAD957BDE3955be568"
+  },
+  "TokenGatedGroupRule": {
+    "address": "0xb7071288E1F0Ef7f7ff9FB37b05FbB6c439fa76e"
+  },
+  "TokenGatedGroupRuleImpl": {
+    "address": "0x47A4D16032b3a32f73f25Dce73484cA2b2e8Dbb4"
+  },
+  "TokenGatedNamespaceRule": {
+    "address": "0x660101e878Dfe6CA3B1A666F0449A61aEF5b365c"
+  },
+  "TokenGatedNamespaceRuleImpl": {
+    "address": "0xF085de7031317d7277b2105809D96F4331814BAA"
+  },
+  "UsernameLengthNamespaceRule": {
+    "address": "0xfA4A5B21626C21FfF8481e11935198435e2FE11A"
+  },
+  "UsernameLengthNamespaceRuleImpl": {
+    "address": "0xC6c985BF3823486DB47018dD442f95B3e002D373"
+  },
+  "UsernamePricePerLengthNamespaceRule": {
+    "address": "0x86bA69583F936Df7f7453c9fE1D74d22414E8805"
+  },
+  "UsernamePricePerLengthNamespaceRuleImpl": {
+    "address": "0x1b80dAb50e6eAb3f71779d1fD5E3867fBdFE513c"
+  },
+  "UsernameReservedNamespaceRule": {
+    "address": "0x78E8066Ab93A0FC12c80327328dcf3D0002dFe13"
+  },
+  "UsernameReservedNamespaceRuleImpl": {
+    "address": "0xa87B4a398eCE64D819a6eC14703CCdea2e12d929"
+  },
+  "UsernameSimpleCharsetNamespaceRule": {
+    "address": "0x7dA0dd90d6B5f1130E3fAf35e5989E1c79F347e5"
+  },
+  "UsernameSimpleCharsetNamespaceRuleImpl": {
+    "address": "0xf7F3F420DDBdFD7E87EcD122C4302f4e2e0e4d36"
+  },
+  "WrappedNativeToken": {
+    "address": "0xFb8bf4c1CC7a94c73D209a149eA2AbEa852BC541"
+  },
+  "chainId": 10143,
+  "deploymentBlock": 72084611
+}

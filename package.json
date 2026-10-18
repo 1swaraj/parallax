@@ -9,6 +9,7 @@
   "scripts": {
     "chain": "bash scripts/dev-chain.sh",
     "sync:contracts": "node scripts/sync-contracts.mjs",
+    "check:testnet": "node --import tsx scripts/check-testnet.ts",
     "indexer": "pnpm --filter @lens-monad/indexer dev",
     "web": "pnpm --filter @lens-monad/web dev",
     "test": "pnpm -r --if-present test",
