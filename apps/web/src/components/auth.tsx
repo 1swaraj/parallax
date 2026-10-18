@@ -243,7 +243,7 @@ function StepTitle({ title, subtitle }: { title: string; subtitle: string }) {
  * Tells someone a wallet didn't connect. Without an extension, the browser wallet has nothing to talk to; closing the
  * wallet's prompt (or WalletConnect's QR code) is a choice, not an error.
  */
-function connectErrorToast(toast: ReturnType<typeof useToast>) {
+export function connectErrorToast(toast: ReturnType<typeof useToast>) {
   return (error: Error) => {
     if (error.name === 'UserRejectedRequestError') {
       return;
@@ -254,6 +254,11 @@ function connectErrorToast(toast: ReturnType<typeof useToast>) {
         : error.message.split('\n')[0]!
     );
   };
+}
+
+/** What a wallet connector is called on screen: wagmi's generic injected connector is the browser's wallet. */
+export function connectorName(connector: { name: string }) {
+  return connector.name === 'Injected' ? 'Browser wallet' : connector.name;
 }
 
 /** Connect a wallet, sign in (SIWE, one free signature), create an account if the wallet has none. */
@@ -305,7 +310,7 @@ export function AuthFlow({ onDone }: { onDone: () => void }) {
                 </span>
                 <Icon name="wallet" size={20} className="text-text-secondary" />
                 <span className="flex-1 text-sm font-medium text-text-primary">
-                  {connector.name === 'Injected' ? 'Browser wallet' : connector.name}
+                  {connectorName(connector)}
                 </span>
                 {connecting && variables?.connector === connector && (
                   <span className="mono-caps text-[11px] text-text-tertiary">Connecting</span>
@@ -363,7 +368,7 @@ export function ConnectWalletButton() {
     <Dropdown
       align="left"
       items={connectors.map((connector) => ({
-        label: connector.name === 'Injected' ? 'Browser wallet' : connector.name,
+        label: connectorName(connector),
         icon: 'wallet' as const,
         onSelect: () => connect({ connector }, { onError: connectErrorToast(toast) }),
       }))}
