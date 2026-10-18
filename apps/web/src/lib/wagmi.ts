@@ -1,30 +1,55 @@
-import { createConfig, createConnector, http } from 'wagmi';
-import { injected, mock } from 'wagmi/connectors';
-import type { Address } from 'viem';
-import { chain, IS_LOCAL } from './config';
+import { createConfig, createConnector, http, type CreateConnectorFn } from 'wagmi';
+import { injected, walletConnect } from 'wagmi/connectors';
+import { APP_DESCRIPTION, APP_NAME } from './brand';
+import { chain } from './config';
 
-// Anvil's 6th to 8th accounts, unlocked on the local node, which signs for them: dev wallets that need no
-// extension. The first four are the deployer, the proxy admin, the claims key and the relayer.
-const DEV_ACCOUNTS: Address[] = [
-  '0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc',
-  '0x976EA74026E726554dB657fA54763abd0C3a0aa9',
-  '0x14dC79964da2C08b23698B3D3cc7Ca32193d9955',
-];
+const WALLETCONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
 
-function devWallet(address: Address, index: number) {
-  return createConnector((config) => ({
-    ...mock({ accounts: [address], features: { reconnect: true } })(config),
-    id: `dev-wallet-${index}`,
-    name: `Dev wallet ${index} (${address.slice(0, 6)}…)`,
-  }));
+/**
+ * WalletConnect, for phones and wallets without an extension, when a project ID is set. In the browser only: the
+ * config sets connectors up as it's created, and WalletConnect's provider needs browser storage.
+ *
+ * Its provider (~300 KB compressed) loads once someone picks it, or on load when it's the wallet they used last: wagmi
+ * asks every connector for its provider as the page loads, which would otherwise load it for every visitor.
+ */
+function walletConnectConnector(): CreateConnectorFn[] {
+  if (!WALLETCONNECT_PROJECT_ID || typeof window === 'undefined') {
+    return [];
+  }
+  const origin = window.location.origin;
+  const create = walletConnect({
+    projectId: WALLETCONNECT_PROJECT_ID,
+    metadata: {
+      name: APP_NAME,
+      description: APP_DESCRIPTION,
+      url: origin,
+      icons: [`${origin}/icon.svg`],
+    },
+  });
+  return [
+    createConnector((config) => {
+      const connector = create(config);
+      let picked = false;
+      const wanted = async () =>
+        picked || (await config.storage?.getItem('recentConnectorId')) === connector.id;
+      return {
+        ...connector,
+        async connect(parameters) {
+          picked = true;
+          return connector.connect.call(this, parameters);
+        },
+        // The connector's other methods reach the provider through this one.
+        async getProvider(parameters) {
+          return (await wanted()) ? connector.getProvider.call(this, parameters) : undefined;
+        },
+      } as typeof connector;
+    }),
+  ];
 }
 
 export const wagmiConfig = createConfig({
   chains: [chain],
-  connectors: [
-    injected(),
-    ...(IS_LOCAL ? DEV_ACCOUNTS.map((address, i) => devWallet(address, i + 1)) : []),
-  ],
+  connectors: [injected(), ...walletConnectConnector()],
   transports: { [chain.id]: http() },
   ssr: true,
 });

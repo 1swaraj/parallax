@@ -239,6 +239,23 @@ function StepTitle({ title, subtitle }: { title: string; subtitle: string }) {
   );
 }
 
+/**
+ * Tells someone a wallet didn't connect. Without an extension, the browser wallet has nothing to talk to; closing the
+ * wallet's prompt (or WalletConnect's QR code) is a choice, not an error.
+ */
+function connectErrorToast(toast: ReturnType<typeof useToast>) {
+  return (error: Error) => {
+    if (error.name === 'UserRejectedRequestError') {
+      return;
+    }
+    toast.error(
+      error.name === 'ProviderNotFoundError'
+        ? "There's no wallet in this browser: install one, or open the app in your wallet's browser."
+        : error.message.split('\n')[0]!
+    );
+  };
+}
+
 /** Connect a wallet, sign in (SIWE, one free signature), create an account if the wallet has none. */
 export function AuthFlow({ onDone }: { onDone: () => void }) {
   const { isConnected, address } = useConnection();
@@ -280,12 +297,7 @@ export function AuthFlow({ onDone }: { onDone: () => void }) {
                 key={connector.uid}
                 type="button"
                 disabled={connecting}
-                onClick={() =>
-                  connect(
-                    { connector },
-                    { onError: (error) => toast.error(error.message.split('\n')[0]!) }
-                  )
-                }
+                onClick={() => connect({ connector }, { onError: connectErrorToast(toast) })}
                 className="group/card focus-ring relative flex h-14 items-center gap-3 rounded-sm border border-border-default bg-bg-elevated px-4 text-left transition-colors duration-150 hover:border-border-hover disabled:opacity-50"
               >
                 <span className="hidden group-hover/card:contents">
@@ -353,11 +365,7 @@ export function ConnectWalletButton() {
       items={connectors.map((connector) => ({
         label: connector.name === 'Injected' ? 'Browser wallet' : connector.name,
         icon: 'wallet' as const,
-        onSelect: () =>
-          connect(
-            { connector },
-            { onError: (error) => toast.error(error.message.split('\n')[0]!) }
-          ),
+        onSelect: () => connect({ connector }, { onError: connectErrorToast(toast) }),
       }))}
       trigger={({ toggle, open }) => (
         <Button size="sm" aria-expanded={open} disabled={isPending} onClick={toggle}>

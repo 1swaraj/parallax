@@ -15,6 +15,7 @@
   "dependencies": {
     "@lens-monad/protocol": "workspace:*",
     "@tanstack/react-query": "^5.90.0",
+    "@walletconnect/ethereum-provider": "^2.26.0",
     "iron-session": "^8.0.0",
     "next": "^16.0.0",
     "postgres": "^3.4.9",
