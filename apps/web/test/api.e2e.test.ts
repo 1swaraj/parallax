@@ -3,7 +3,9 @@
 // SponsorRouter, and the guards. The users' wallets hold no MON: the relayer pays for everything.
 
 import {
+  createAndAssignUsername,
   createPost,
+  feedAbi,
   follow,
   textOnlyPost,
   toDataURI,
@@ -11,6 +13,7 @@ import {
   type ProfileView,
   type Page,
 } from '@lens-monad/protocol';
+import { encodeFunctionData, zeroHash } from 'viem';
 import { createSiweMessage } from 'viem/siwe';
 import { describe, expect, it } from 'vitest';
 import { APP, CHAIN_ID, contracts, indexed, user } from './e2e';
@@ -118,6 +121,57 @@ describe('the app server, sponsored', () => {
     });
     expect(otherTarget.status).toBe(400);
 
+    // The SponsorRouter allows it, the app never sends it: free usernames, minted on the relayer's gas.
+    const username = await bob.call('/api/relay', {
+      method: 'POST',
+      body: createAndAssignUsername(
+        contracts.LensGlobalNamespace,
+        bobAccount,
+        `free${Date.now().toString(36)}`
+      ),
+    });
+    expect(username).toMatchObject({
+      status: 400,
+      body: { error: "That action can't be sponsored" },
+    });
+
+    const withRule = await bob.call('/api/relay', {
+      method: 'POST',
+      body: {
+        target: FEED,
+        data: encodeFunctionData({
+          abi: feedAbi,
+          functionName: 'createPost',
+          args: [
+            {
+              author: bobAccount,
+              contentURI: toDataURI(textOnlyPost('with a rule')),
+              repostedPostId: 0n,
+              quotedPostId: 0n,
+              repliedPostId: 0n,
+              ruleChanges: [
+                {
+                  ruleAddress: contracts.AccountBlockingRule,
+                  configSalt: zeroHash,
+                  configurationChanges: { configure: true, ruleParams: [] },
+                  selectorChanges: [],
+                },
+              ],
+              extraData: [],
+            },
+            [],
+            [],
+            [],
+            [],
+          ],
+        }),
+      },
+    });
+    expect(withRule).toMatchObject({
+      status: 400,
+      body: { error: "Posts with rules can't be sponsored" },
+    });
+
     const badPicture = await alice.call('/api/profile', {
       method: 'POST',
       body: { picture: 'javascript:alert(1)' },
@@ -125,7 +179,7 @@ describe('the app server, sponsored', () => {
     expect(badPicture.status).toBe(400);
   });
 
-  it('rejects cross-origin requests, replayed nonces and signed-out sessions', async () => {
+  it('rejects cross-origin requests, replayed nonces, stale sign-ins and signed-out sessions', async () => {
     const crossOrigin = await alice.call('/api/relay', {
       method: 'POST',
       origin: 'https://evil.example',
@@ -153,6 +207,26 @@ describe('the app server, sponsored', () => {
       (await mallory.call('/api/auth/verify', { method: 'POST', body: { message, signature } }))
         .status
     ).toBe(400);
+
+    // A message issued more than 10 minutes ago, with a fresh nonce.
+    const fresh = await mallory.call<{ nonce: string }>('/api/auth/nonce');
+    const stale = createSiweMessage({
+      address: mallory.wallet.address,
+      chainId: CHAIN_ID,
+      domain: new URL(APP).host,
+      uri: APP,
+      nonce: fresh.body.nonce,
+      version: '1',
+      issuedAt: new Date(Date.now() - 11 * 60 * 1000),
+    });
+    const staleSignIn = await mallory.call('/api/auth/verify', {
+      method: 'POST',
+      body: { message: stale, signature: await mallory.wallet.signMessage({ message: stale }) },
+    });
+    expect(staleSignIn).toMatchObject({
+      status: 400,
+      body: { error: 'This sign-in request expired, try again.' },
+    });
 
     expect((await alice.call('/api/auth/session', { method: 'DELETE', body: {} })).status).toBe(
       200

@@ -8,13 +8,20 @@ import { NextResponse } from 'next/server';
 import { isAddressEqual, parseEventLogs, type Address, type Log } from 'viem';
 import { contracts } from '@/lib/config';
 import { sendAsRelayer } from '@/lib/server/chain';
-import { numberEnv } from '@/lib/server/env';
-import { assertNotPaused, assertSameOrigin, handle, HttpError } from '@/lib/server/guard';
-import { profileMetadataURI } from '@/lib/server/requests';
+import { maxGasPerSignUp, numberEnv } from '@/lib/server/env';
+import {
+  assertSameOrigin,
+  assertSponsorshipAvailable,
+  handle,
+  HttpError,
+} from '@/lib/server/guard';
+import { clientIpKey, profileMetadataURI } from '@/lib/server/requests';
 import { getSession } from '@/lib/server/session';
 import { rateLimit } from '@/lib/server/state';
 
 export const maxDuration = 60;
+
+const HOUR_MS = 60 * 60 * 1000;
 
 /** The Account the sign-up created, from AccountFactory's event: one per sign-up. */
 function createdAccount(logs: Log[]): Address {
@@ -32,11 +39,11 @@ function createdAccount(logs: Log[]): Address {
 /**
  * Creates a Lens Account for the signed-in EOA, paid by the relayer: LensFactory.createAccountWithUsernameFree, with
  * the EOA as owner and the SponsorRouter as manager. Sign-ups are the most expensive sponsored action (~2.1M gas),
- * so they are rate-limited per owner.
+ * so they are rate-limited per owner, per IP and overall.
  */
 export async function POST(request: Request) {
   return handle(async () => {
-    assertNotPaused();
+    assertSponsorshipAvailable();
     assertSameOrigin(request);
     const session = await getSession();
     if (!session.owner) {
@@ -48,21 +55,16 @@ export async function POST(request: Request) {
     if (invalid) {
       throw new HttpError(400, `Username: ${invalid}`);
     }
-    // EOAs are free to create, so the per-owner limit alone doesn't bound what the relayer spends: limit per IP too.
-    // x-forwarded-for is only trustworthy behind a proxy that sets it (e.g. Vercel).
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+    const metadataURI = profileMetadataURI(body);
+    // EOAs are free to create, and IPs (IPv6 /64s above all) cheap to rotate: per owner and per IP, then overall. The
+    // overall cap comes last, so requests the others refuse don't use it up.
+    await rateLimit(`signup:${session.owner}`, numberEnv('SIGNUP_RATE_LIMIT_PER_HOUR', 3), HOUR_MS);
     await rateLimit(
-      `signup:${session.owner}`,
-      numberEnv('SIGNUP_RATE_LIMIT_PER_HOUR', 3),
-      60 * 60 * 1000
+      `signup-ip:${clientIpKey(request)}`,
+      numberEnv('SIGNUP_RATE_LIMIT_PER_IP_PER_HOUR', 10),
+      HOUR_MS
     );
-    if (ip) {
-      await rateLimit(
-        `signup-ip:${ip}`,
-        numberEnv('SIGNUP_RATE_LIMIT_PER_IP_PER_HOUR', 10),
-        60 * 60 * 1000
-      );
-    }
+    await rateLimit('signup-all', numberEnv('SPONSOR_SIGNUPS_PER_HOUR', 200), HOUR_MS);
 
     // The Account doesn't exist yet: the owner picks the relayer.
     const { hash, logs, blockNumber } = await sendAsRelayer(
@@ -74,11 +76,12 @@ export async function POST(request: Request) {
           namespace: contracts.LensGlobalNamespace,
           owner: session.owner,
           username,
-          metadataURI: profileMetadataURI(body),
+          metadataURI,
           sponsorRouter: contracts.SponsorRouter,
         }),
       },
-      session.owner
+      session.owner,
+      maxGasPerSignUp()
     );
     session.account = createdAccount(logs);
     await session.save();

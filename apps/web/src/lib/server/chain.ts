@@ -31,15 +31,16 @@ const RECEIPT_TIMEOUT_MS = 30_000;
 /**
  * Sends a call as the relayer that serves `actor` (the Account it's for, or the owner for sign-ups): simulates it
  * first, so reverts cost nothing and surface the contract's error, then sends it with a gas limit 10% above the
- * estimate. Monad charges the gas limit, not the gas used, so it stays tight. The gas limit is reserved in the hourly
- * budget first, then settled to the receipt's gasUsed.
+ * estimate. Monad charges the gas limit, not the gas used, so it stays tight, and a call whose limit is over `maxGas`
+ * is refused. The gas limit is reserved in the hourly budget first, then settled to the receipt's gasUsed.
  *
  * What the call created is in the receipt's logs: the simulation's return value is a guess that concurrent
  * transactions make wrong (e.g. the address of an Account, which the factory derives from its nonce).
  */
 export async function sendAsRelayer<const abi extends Abi>(
   call: { address: Address; abi: abi; functionName: string; args: readonly unknown[] },
-  actor: Address
+  actor: Address,
+  maxGas: bigint
 ): Promise<{ hash: Hex; blockNumber: bigint; logs: Log[] }> {
   const relayer = relayerFor(actor);
   // The generic contract types don't narrow through this helper's signature; callers pass ABI-checked calls.
@@ -51,6 +52,13 @@ export async function sendAsRelayer<const abi extends Abi>(
     throw error;
   }
   const gas = ((await publicClient.estimateContractGas(params)) * 110n) / 100n;
+  // E.g. rules on a replied-to post, or a follow rule, that the caller chose to make expensive.
+  if (gas > maxGas) {
+    throw new HttpError(
+      400,
+      'This action needs more gas than the app sponsors. Pay the gas from your wallet (Settings).'
+    );
+  }
   const fees = await publicClient.estimateFeesPerGas();
   const transaction = {
     chainId: chain.id,

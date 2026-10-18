@@ -1,6 +1,38 @@
+import { isIP } from 'node:net';
 import { accountMetadata, toDataURI } from '@lens-monad/protocol';
 import { MAX_BIO_CHARACTERS, MAX_NAME_CHARACTERS } from '../config';
 import { HttpError } from './guard';
+
+/**
+ * The client's address for per-IP limits, from x-forwarded-for (only trustworthy behind a proxy that sets it, e.g.
+ * Vercel). IPv6 clients get a whole /64, so one is grouped by its /64. Requests without a usable address share one
+ * bucket, rather than escaping the limit.
+ */
+export function clientIpKey(request: Request): string {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? '';
+  const version = isIP(ip);
+  if (version === 4) {
+    return ip;
+  }
+  if (version !== 6) {
+    return 'unknown';
+  }
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (mapped) {
+    return mapped[1]!;
+  }
+  // An IPv4 tail is in the last 32 bits, so it never changes the /64: count it as two groups.
+  const groups = (part: string) =>
+    part ? part.split(':').flatMap((group) => (group.includes('.') ? ['0', '0'] : [group])) : [];
+  const [head = '', tail] = ip.split('%')[0]!.split('::');
+  const left = groups(head);
+  const right = tail === undefined ? [] : groups(tail);
+  const full = [...left, ...Array(8 - left.length - right.length).fill('0'), ...right];
+  return `${full
+    .slice(0, 4)
+    .map((group) => parseInt(group, 16).toString(16))
+    .join(':')}::/64`;
+}
 
 function optionalText(value: unknown, field: string, max: number): string | undefined {
   if (value === undefined || value === null || value === '') {

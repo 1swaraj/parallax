@@ -1,5 +1,8 @@
-// What the end-to-end tests share: the app's URL, its chain (from /api/health, so the tests run on any chain whose
-// address book is synced), and a browser-like user with a wallet and a session cookie.
+// What the end-to-end tests share: the app's URL, its chain (from /api/health's details, so the tests run on any chain
+// whose address book is synced), and a browser-like user with a wallet and a session cookie. The details take the
+// server's HEALTH_TOKEN:
+//
+//   HEALTH_TOKEN=... pnpm --filter @lens-monad/web test:e2e
 
 import { getDeployment } from '@lens-monad/protocol';
 import { createPublicClient, http } from 'viem';
@@ -9,10 +12,20 @@ import type { Health } from '../src/lib/server/health';
 
 export const APP = process.env.APP_URL ?? 'http://localhost:3000';
 export const RPC_URL = process.env.RPC_URL ?? 'http://127.0.0.1:8545';
+export const HEALTH_TOKEN = process.env.HEALTH_TOKEN;
 
-export async function health(): Promise<{ status: number; body: Health }> {
-  const response = await fetch(`${APP}/api/health`);
-  return { status: response.status, body: (await response.json()) as Health };
+export type HealthDetails = Health & { status: 'ok' | 'degraded' };
+
+/** /api/health with its details. */
+export async function health(): Promise<{ status: number; body: HealthDetails }> {
+  const response = await fetch(`${APP}/api/health`, {
+    headers: HEALTH_TOKEN ? { authorization: `Bearer ${HEALTH_TOKEN}` } : {},
+  });
+  const body = (await response.json()) as HealthDetails;
+  if (!('chainId' in body)) {
+    throw new Error("/api/health shows its details only with the server's HEALTH_TOKEN: set it");
+  }
+  return { status: response.status, body };
 }
 
 export const { chainId: CHAIN_ID, relayers: RELAYERS } = (await health()).body;

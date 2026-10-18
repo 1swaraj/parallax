@@ -56,6 +56,8 @@ page.on('console', (message) => message.type() === 'error' && errors.push(messag
 const shot = (name) => page.screenshot({ path: path.join(SHOTS, `${name}.png`) });
 
 const username = `ui${Date.now().toString(36)}`;
+// The account the profile steps open: the new one, or the one the wallet already had on an earlier run.
+let profile = { handle: username, name: 'UI Walkthrough' };
 // Wallet 1 is the one a person tries first: the walkthrough keeps out of its way.
 const wallet = Number(process.env.DEV_WALLET ?? 3);
 
@@ -89,6 +91,13 @@ await step('create an account', async () => {
   }
   await dialog.waitFor({ state: 'detached', timeout: 30000 });
   await page.getByRole('button', { name: 'New post' }).first().waitFor();
+  if (!needsAccount) {
+    const { account } = await page.evaluate(
+      async (address) => (await fetch(`/indexer/accounts/${address}`)).json(),
+      (await page.evaluate(async () => (await fetch('/api/auth/session')).json())).account
+    );
+    profile = { handle: account.username, name: account.name ?? account.username };
+  }
 });
 
 await step('post from the home composer', async () => {
@@ -135,8 +144,8 @@ await step('follow someone from Explore', async () => {
 });
 
 await step('profile', async () => {
-  await page.goto(`${APP}/u/${username}`, { waitUntil: 'networkidle' });
-  await page.getByRole('heading', { name: 'UI Walkthrough' }).first().waitFor();
+  await page.goto(`${APP}/u/${profile.handle}`, { waitUntil: 'networkidle' });
+  await page.getByRole('heading', { name: profile.name }).first().waitFor();
   await shot('09-profile');
 });
 
@@ -161,7 +170,7 @@ await step('mobile', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(APP, { waitUntil: 'networkidle' });
   await shot('13-mobile-home');
-  await page.goto(`${APP}/u/${username}`, { waitUntil: 'networkidle' });
+  await page.goto(`${APP}/u/${profile.handle}`, { waitUntil: 'networkidle' });
   await shot('14-mobile-profile');
 });
 

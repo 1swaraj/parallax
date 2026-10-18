@@ -1,5 +1,6 @@
 import { CHAIN_ID } from '../config';
 import { database } from './db';
+import { gasBudgetPerHour } from './env';
 import { HttpError } from './guard';
 import {
   memoryGasBudget,
@@ -58,20 +59,9 @@ export async function rateLimit(key: string, limit: number, windowMs: number) {
   }
 }
 
-// Without a budget, gas is still counted (see /api/health), against a limit nothing reaches.
+// Only the local chain sponsors without a budget (missingSponsorSettings): gas is still counted (see /api/health),
+// against a limit nothing reaches.
 const NO_BUDGET = 2n ** 62n;
-
-/** SPONSOR_GAS_BUDGET_PER_HOUR: the gas all relayers may spend per clock hour, or null when unset. */
-export function gasBudgetPerHour(): bigint | null {
-  const value = process.env.SPONSOR_GAS_BUDGET_PER_HOUR?.replace(/_/g, '').trim();
-  if (!value) {
-    return null;
-  }
-  if (!/^\d+$/.test(value) || BigInt(value) === 0n) {
-    throw new Error('SPONSOR_GAS_BUDGET_PER_HOUR must be a positive number of gas units');
-  }
-  return BigInt(value);
-}
 
 /** Reserves a transaction's gas limit in this hour's budget, or refuses the action when it's spent. */
 export async function reserveGas(gas: bigint): Promise<GasReservation> {

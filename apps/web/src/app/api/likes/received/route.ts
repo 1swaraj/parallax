@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isOwnedBy } from '@/lib/server/chain';
 import { handle, HttpError } from '@/lib/server/guard';
 import { optionalTime, pageLimit } from '@/lib/server/requests';
 import { getSession } from '@/lib/server/session';
@@ -12,9 +13,12 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: Request) {
   return handle(async () => {
-    const { account } = await getSession();
-    if (!account) {
+    const { owner, account } = await getSession();
+    if (!owner || !account) {
       throw new HttpError(401, 'Sign in with a Lens account first');
+    }
+    if (!(await isOwnedBy(account, owner))) {
+      throw new HttpError(403, 'Your wallet no longer owns this account, sign in again');
     }
     const params = new URL(request.url).searchParams;
     const received = await serverState().likes.received(account, {

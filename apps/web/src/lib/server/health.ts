@@ -1,13 +1,22 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { sponsorRouterAbi } from '@lens-monad/protocol';
 import { formatEther, parseEther, type Address } from 'viem';
 import { APP_NAME } from '../brand';
 import { CHAIN_ID, contracts } from '../config';
 import { publicClient } from './chain';
 import { database } from './db';
-import { indexerUrl, numberEnv } from './env';
+import {
+  gasBudgetPerHour,
+  healthToken,
+  indexerUrl,
+  maxGasPerSignUp,
+  maxGasPerTransaction,
+  missingSponsorSettings,
+  numberEnv,
+} from './env';
 import { isPaused } from './guard';
 import { relayers } from './relayers';
-import { gasBudgetPerHour, serverState } from './state';
+import { serverState } from './state';
 
 type RelayerHealth = {
   address: Address;
@@ -41,6 +50,20 @@ const SIGN_UP_GAS = 2_500_000n;
 const CACHE_MS = 5_000;
 
 let cached: { at: number; health: Promise<Health> } | undefined;
+
+function digest(value: string) {
+  return createHash('sha256').update(value).digest();
+}
+
+/**
+ * Whether a request may see the details (relayers, balances, gas, problems): with `Authorization: Bearer
+ * <HEALTH_TOKEN>`. Compared in constant time, as digests so the lengths match.
+ */
+export function canSeeHealthDetails(authorization: string | null): boolean {
+  const token = healthToken();
+  const presented = /^Bearer (.+)$/i.exec(authorization ?? '')?.[1];
+  return !!token && !!presented && timingSafeEqual(digest(presented), digest(token));
+}
 
 export function checkHealth(): Promise<Health> {
   if (!cached || Date.now() - cached.at > CACHE_MS) {
@@ -118,8 +141,22 @@ async function check(): Promise<Health> {
   let budget: bigint | null = null;
   try {
     budget = gasBudgetPerHour();
+    for (const name of missingSponsorSettings()) {
+      problems.push(`${name} isn't set, so sponsored actions are refused`);
+    }
   } catch {
     problems.push('SPONSOR_GAS_BUDGET_PER_HOUR is invalid');
+  }
+  const caps = [
+    ['SPONSOR_MAX_GAS_PER_TX', maxGasPerTransaction],
+    ['SPONSOR_MAX_GAS_PER_SIGNUP', maxGasPerSignUp],
+  ] as const;
+  for (const [name, read] of caps) {
+    try {
+      read();
+    } catch {
+      problems.push(`${name} is invalid`);
+    }
   }
   // Transactions that don't fit are refused before the budget is full: flag it once a sign-up no longer fits.
   if (budget !== null && used !== null && budget - used < SIGN_UP_GAS) {

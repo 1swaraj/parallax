@@ -3,8 +3,9 @@ import { parseSiweMessage, verifySiweMessage } from 'viem/siwe';
 import { CHAIN_ID } from '@/lib/config';
 import { accountsOwnedBy } from '@/lib/server/accounts';
 import { publicClient } from '@/lib/server/chain';
+import { appUrl } from '@/lib/server/env';
 import { assertSameOrigin, handle, HttpError } from '@/lib/server/guard';
-import { getSession } from '@/lib/server/session';
+import { getSession, isFreshSignIn } from '@/lib/server/session';
 
 /** Signs in with Ethereum (EIP-4361), then picks the first Lens Account the signer owns. */
 export async function POST(request: Request) {
@@ -18,10 +19,15 @@ export async function POST(request: Request) {
       throw new HttpError(400, 'message and signature are required');
     }
     const session = await getSession();
-    const domain = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? '';
+    // The app's URL when it's set: the Host and X-Forwarded-Host headers say whatever the request says.
+    const domain =
+      appUrl()?.host ?? request.headers.get('x-forwarded-host') ?? request.headers.get('host');
     const fields = parseSiweMessage(message);
-    if (!session.nonce || fields.chainId !== CHAIN_ID || !fields.address) {
+    if (!domain || !session.nonce || fields.chainId !== CHAIN_ID || !fields.address) {
       throw new HttpError(400, 'Invalid sign-in request, try again.');
+    }
+    if (!isFreshSignIn(session.nonceAt, fields.issuedAt)) {
+      throw new HttpError(400, 'This sign-in request expired, try again.');
     }
     const valid = await verifySiweMessage(publicClient, {
       message,
@@ -31,6 +37,7 @@ export async function POST(request: Request) {
     });
     // A nonce is good for one attempt.
     session.nonce = undefined;
+    session.nonceAt = undefined;
     if (!valid) {
       await session.save();
       throw new HttpError(401, 'Invalid signature');

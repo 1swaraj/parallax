@@ -1,6 +1,6 @@
 import { describeLensError, lensErrorName } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
-import { booleanEnv } from './env';
+import { booleanEnv, missingSponsorSettings } from './env';
 
 export class HttpError extends Error {
   constructor(
@@ -31,9 +31,15 @@ export function isPaused() {
   return booleanEnv('RELAY_PAUSED');
 }
 
-export function assertNotPaused() {
+/** Refuses actions the relayers would pay for while paused, or while the settings that bound their spending lack. */
+export function assertSponsorshipAvailable() {
   if (isPaused()) {
     throw new HttpError(503, 'Sponsored actions are paused, try again soon');
+  }
+  const missing = missingSponsorSettings();
+  if (missing.length > 0) {
+    console.error(`Sponsored actions are refused: set ${missing.join(' and ')}`);
+    throw new HttpError(503, "Sponsorship isn't configured");
   }
 }
 
