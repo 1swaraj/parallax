@@ -6,6 +6,7 @@
  */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Not in the repo (licensed to Monad): scripts/fetch-display-font.mjs adds it at build time. */
 @font-face {
   font-family: 'Britti Sans';
   src: url('/fonts/britti-sans-variable.woff2') format('woff2');

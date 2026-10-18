@@ -17,7 +17,7 @@ import {
 import { useLikesSeen, useUnreadLikes } from '@/lib/likes';
 import { useSession } from '@/lib/session';
 import { AccountRow, Avatar, handleOf } from './account';
-import { AccountMenu } from './auth';
+import { AccountMenu, LogOutButton } from './auth';
 import { Icon, Logo, Wordmark, type IconName } from './icons';
 import { useAuthModal, useCompose } from './modals';
 import { ThemeToggle } from './theme';
@@ -143,7 +143,9 @@ function Sidebar() {
           )}
         </div>
       </div>
-      <div className="max-xl:flex max-xl:justify-center">{account ? <AccountMenu /> : null}</div>
+      <div className="max-xl:flex max-xl:justify-center">
+        {account ? <AccountMenu /> : owner ? <LogOutButton /> : null}
+      </div>
     </header>
   );
 }
@@ -466,7 +468,11 @@ function useRouteFocus(main: React.RefObject<HTMLElement | null>) {
       first.current = false;
       return;
     }
-    main.current?.focus({ preventScroll: true });
+    // A page that focused a field itself (Explore's search box) keeps it.
+    const active = document.activeElement;
+    if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) {
+      main.current?.focus({ preventScroll: true });
+    }
   }, [pathname, main]);
 }
 

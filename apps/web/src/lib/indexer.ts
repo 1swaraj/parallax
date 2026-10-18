@@ -9,7 +9,12 @@ import type {
   Relationship,
   ThreadView,
 } from '@lens-monad/protocol';
-import { useInfiniteQuery, useQuery, type QueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useQuery,
+  type QueryClient,
+} from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import type { Address } from 'viem';
 
@@ -135,11 +140,13 @@ export function useSuggestedAccounts(viewer: Address | null, limit = 3) {
 }
 
 /** Trending hashtags. An indexer without /trends yet just means no panel. */
+/** A week, not a day: a young network has too few posts a day for a day's trends to say much. */
 export function useTrends() {
   return useQuery({
     queryKey: [INDEXER_KEY, 'trends'],
     queryFn: async () =>
-      (await indexerGet<{ items: { tag: string; posts: number }[] }>('/trends?limit=5')).items,
+      (await indexerGet<{ items: { tag: string; posts: number }[] }>('/trends?limit=5&hours=168'))
+        .items,
     retry: false,
     refetchInterval: 60_000,
   });
@@ -158,17 +165,28 @@ export function useRelationships(viewer: Address | null, accounts: Address[]) {
   return useQuery({
     queryKey: [INDEXER_KEY, 'relationships', viewer, sorted],
     queryFn: async () => {
-      const result = await indexerGet<Record<string, Relationship>>(
-        `/relationships${query({ viewer, accounts: sorted.join(',') })}`
+      const chunks = [];
+      for (let i = 0; i < sorted.length; i += 100) {
+        chunks.push(sorted.slice(i, i + 100));
+      }
+      const results = await Promise.all(
+        chunks.map((chunk) =>
+          indexerGet<Record<string, Relationship>>(
+            `/relationships${query({ viewer, accounts: chunk.join(',') })}`
+          )
+        )
       );
       return Object.fromEntries(
-        Object.entries(result).map(([address, relationship]) => [
-          address.toLowerCase(),
-          relationship,
-        ])
+        results.flatMap((result) =>
+          Object.entries(result).map(([address, relationship]) => [
+            address.toLowerCase(),
+            relationship,
+          ])
+        )
       );
     },
     enabled: viewer !== null && sorted.length > 0,
+    placeholderData: keepPreviousData,
   });
 }
 

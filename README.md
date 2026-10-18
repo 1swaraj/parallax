@@ -33,6 +33,8 @@ Parallax follows X's layout and interactions, and Monad's design system,
 
 - Semantic tokens in light and dark (`apps/web/src/app/globals.css`).
 - Britti Sans for titles, Inter for text, and Roboto Mono uppercase for buttons, navigation and metadata.
+  Britti Sans is licensed to Monad and isn't in this repo: set `DISPLAY_FONT_URL` for the build, or put
+  `britti-sans-variable.woff2` in `apps/web/public/fonts/`. Without it, titles use Inter.
 - Monad Purple only for primary actions, focus and active states.
 - 4px radii on interactive surfaces, sharp structural ones.
 - Corner brackets on hovered rows and cards, and monad.xyz's dot grid behind the content rail.
@@ -148,6 +150,7 @@ Parallax runs as a Next.js app on Vercel (the pages and the relayer's API), and 
 | `DATABASE_URL`                      | Vercel, sensitive                  | Railway Postgres's `DATABASE_PUBLIC_URL` + `?sslmode=require` (Vercel is outside Railway's network)  |
 | `DATABASE_POOL_SIZE`                | Vercel                             | Connections per instance (5). Instances × size must fit Railway's `max_connections` (100 by default) |
 | `SPONSOR_GAS_BUDGET_PER_HOUR`       | Vercel                             | Gas all relayers may spend per hour, e.g. `500000000` (~51 MON at 102 gwei). Unset: unlimited        |
+| `DISPLAY_FONT_URL`                  | Vercel, build                      | Where the build downloads Britti Sans from (see Design). Unset: titles use Inter                     |
 | `RELAY_PAUSED`                      | Vercel                             | `true` turns sponsored actions off (503). Takes a redeploy                                           |
 | `RELAY_RATE_LIMIT_PER_MINUTE`       | Vercel                             | Sponsored actions per Account per minute (30)                                                        |
 | `SIGNUP_RATE_LIMIT_PER_HOUR`        | Vercel                             | Sign-ups per owner per hour (3)                                                                      |

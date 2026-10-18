@@ -129,11 +129,15 @@ export function AccountRow({
   relationship?: Relationship | null;
   showBio?: boolean;
 }) {
+  // A stretched link under the content, with the follow button raised above it: the whole row
+  // opens the profile without nesting a button inside a link.
   return (
-    <Link
-      href={profileHref(account)}
-      className="group/avatar focus-ring relative flex gap-3 px-4 py-3 transition-colors duration-150 hover:bg-bg-hover"
-    >
+    <div className="group/avatar relative flex gap-3 px-4 py-3 transition-colors duration-150 hover:bg-bg-hover">
+      <Link
+        href={profileHref(account)}
+        aria-label={`${displayName(account)} ${atHandle(account)}`}
+        className="focus-ring absolute inset-0"
+      />
       <span className="hidden group-hover/avatar:contents">
         <CornerBrackets size={8} />
       </span>
@@ -149,13 +153,15 @@ export function AccountRow({
               {relationship?.followedBy && <FollowsYou />}
             </div>
           </div>
-          <FollowButton target={account} relationship={relationship} />
+          <div className="relative z-10">
+            <FollowButton target={account} relationship={relationship} />
+          </div>
         </div>
         {showBio && account.bio && (
           <p className="mt-1 line-clamp-2 text-sm break-words text-text-secondary">{account.bio}</p>
         )}
       </div>
-    </Link>
+    </div>
   );
 }
 

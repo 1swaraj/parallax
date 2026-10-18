@@ -56,7 +56,8 @@ page.on('console', (message) => message.type() === 'error' && errors.push(messag
 const shot = (name) => page.screenshot({ path: path.join(SHOTS, `${name}.png`) });
 
 const username = `ui${Date.now().toString(36)}`;
-const wallet = Number(process.env.DEV_WALLET ?? 1);
+// Wallet 1 is the one a person tries first: the walkthrough keeps out of its way.
+const wallet = Number(process.env.DEV_WALLET ?? 3);
 
 await step('home, signed out', async () => {
   await page.goto(APP, { waitUntil: 'networkidle' });

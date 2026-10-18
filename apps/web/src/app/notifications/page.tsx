@@ -3,7 +3,7 @@
 import type { NotificationView } from '@lens-monad/protocol';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Avatar, displayName, profileHref, RelativeTime, RichText } from '@/components/account';
+import { Avatar, displayName, profileHref, RelativeTime } from '@/components/account';
 import { Icon, type IconName } from '@/components/icons';
 import { useAuthModal } from '@/components/modals';
 import { PostCard } from '@/components/post';
@@ -61,7 +61,10 @@ function ActivityRow({
           <RelativeTime seconds={createdAt} />
         </p>
         {excerpt && (
-          <RichText text={excerpt} className="mt-1 line-clamp-3 text-sm text-text-tertiary" />
+          // Plain text: the whole row is a link, and links can't nest.
+          <p className="mt-1 line-clamp-3 text-sm break-words whitespace-pre-wrap [overflow-wrap:anywhere] text-text-tertiary">
+            {excerpt}
+          </p>
         )}
       </div>
     </Link>

@@ -5,6 +5,7 @@
   "license": "GPL-3.0-only",
   "scripts": {
     "dev": "next dev --port 3000",
+    "prebuild": "node scripts/fetch-display-font.mjs",
     "build": "next build",
     "start": "next start --port 3000",
     "test": "vitest run --exclude \"test/**/*.e2e.test.ts\" --passWithNoTests",

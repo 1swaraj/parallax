@@ -1,10 +1,10 @@
 'use client';
 
-import type { AccountView, PostView } from '@lens-monad/protocol';
+import type { AccountView, PostView, ProfileView } from '@lens-monad/protocol';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import type { Address } from 'viem';
-import { indexerGet } from './indexer';
+import { INDEXER_KEY, indexerGet } from './indexer';
 import { api } from './session';
 
 /*
@@ -125,6 +125,7 @@ export type LikeNotification = {
 
 /** Likes on the account's posts, grouped per post like X: "Ana and 3 others liked your post". */
 export function useReceivedLikes(account: Address | null, since: string | null) {
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: [LIKES_KEY, 'received', account, since],
     queryFn: async () => {
@@ -137,8 +138,14 @@ export function useReceivedLikes(account: Address | null, since: string | null) 
       const [posts, likers] = await Promise.all([
         postsByIds(postIds, account),
         Promise.all(
+          // Shares useProfile's cache, so a liker is fetched once per 5 minutes, not every poll.
           likerAddresses.map((address) =>
-            indexerGet<{ account: AccountView }>(`/accounts/${address}`)
+            queryClient
+              .fetchQuery({
+                queryKey: [INDEXER_KEY, 'profile', address.toLowerCase(), null],
+                queryFn: () => indexerGet<ProfileView>(`/accounts/${address}`),
+                staleTime: 5 * 60_000,
+              })
               .then((profile) => profile.account)
               .catch(() => null)
           )

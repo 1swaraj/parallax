@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { isAddressEqual } from 'viem';
 import { useLensActions } from '@/lib/actions';
+import { useSession } from '@/lib/session';
 import { useLike, useToggleLike } from '@/lib/likes';
 import { contracts } from '@/lib/config';
 import {
@@ -63,7 +64,8 @@ function ActionButton({
   );
 }
 
-export function QuotedPost({ post }: { post: PostView }) {
+/** The quoted post inside a post. Its text is plain because the card is itself a link; links can't nest. */
+export function QuotedPost({ post, link = true }: { post: PostView; link?: boolean }) {
   if (post.deleted) {
     return (
       <div className="mt-3 rounded-sm bg-bg-subtle px-4 py-3 text-sm text-text-tertiary">
@@ -71,12 +73,8 @@ export function QuotedPost({ post }: { post: PostView }) {
       </div>
     );
   }
-  return (
-    <Link
-      href={`/p/${post.id}`}
-      onClick={(event) => event.stopPropagation()}
-      className="focus-ring mt-3 block rounded-sm border border-border-default bg-bg-elevated px-3 py-3 transition-colors duration-150 hover:border-border-strong"
-    >
+  const body = (
+    <>
       <div className="flex min-w-0 items-center gap-2 text-sm">
         <Avatar account={post.author} size={20} />
         <NameLine account={post.author} link={false} />
@@ -84,8 +82,23 @@ export function QuotedPost({ post }: { post: PostView }) {
         <RelativeTime seconds={post.createdAt} />
       </div>
       {post.content && (
-        <RichText text={post.content} className="mt-1.5 line-clamp-6 text-sm text-text-primary" />
+        <p className="mt-1.5 line-clamp-6 text-sm break-words whitespace-pre-wrap [overflow-wrap:anywhere] text-text-primary">
+          {post.content}
+        </p>
       )}
+    </>
+  );
+  const frame = 'mt-3 block rounded-sm border border-border-default bg-bg-elevated px-3 py-3';
+  if (!link) {
+    return <div className={frame}>{body}</div>;
+  }
+  return (
+    <Link
+      href={`/p/${post.id}`}
+      onClick={(event) => event.stopPropagation()}
+      className={`focus-ring ${frame} transition-colors duration-150 hover:border-border-strong`}
+    >
+      {body}
     </Link>
   );
 }
@@ -103,7 +116,7 @@ function useCopyLink() {
 
 /** The heart. Likes are Parallax's own (Lens has no onchain likes), so they're instant and free. */
 function LikeButton({ postId, large }: { postId: string; large: boolean }) {
-  const { account } = useLensActions();
+  const { account } = useSession();
   const openAuth = useAuthModal();
   const toast = useToast();
   const { data } = useLike(postId);
@@ -117,9 +130,10 @@ function LikeButton({ postId, large }: { postId: string; large: boolean }) {
       active={liked}
       large={large}
       onClick={() =>
-        account
-          ? toggle.mutate(!liked, { onError: (error) => toast.error(error.message) })
-          : openAuth()
+        !account
+          ? openAuth()
+          : !toggle.isPending &&
+            toggle.mutate(!liked, { onError: (error) => toast.error(error.message) })
       }
     />
   );
@@ -283,7 +297,7 @@ export function PostCard({
   lineBelow?: boolean;
 }) {
   const router = useRouter();
-  const { account } = useLensActions();
+  const { account } = useSession();
   const shown = post.reposted ?? post;
   const isOwnRepost = !!post.reposted && !!account && isAddressEqual(account, post.author.address);
 

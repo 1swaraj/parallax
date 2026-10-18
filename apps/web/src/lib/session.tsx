@@ -93,7 +93,7 @@ export function useSession() {
     /** The Lens Account the user acts as. */
     account,
     /** Connected, but the session is for nobody or another wallet. */
-    needsSignIn: !!address && (!session.owner || otherWallet),
+    needsSignIn: !isLoading && !!address && (!session.owner || otherWallet),
     signIn,
     signOut,
     selectAccount,

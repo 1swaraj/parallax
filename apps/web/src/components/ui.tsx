@@ -260,6 +260,8 @@ export function Tabs<T extends string>({
             if (next) {
               event.preventDefault();
               select(next);
+              const buttons = event.currentTarget.parentElement?.querySelectorAll('button');
+              buttons?.[tabs.indexOf(next)]?.focus();
             }
           }}
           className="group focus-ring flex h-12 flex-1 justify-center px-4 transition-colors duration-150 hover:bg-bg-hover"
@@ -363,7 +365,12 @@ export function Modal({
       if (event.key === 'Escape') {
         onClose();
       }
-      // Keep Tab inside the dialog.
+      // Keep Tab inside the dialog, pulling focus back in if it got out.
+      if (event.key === 'Tab' && panel.current && !panel.current.contains(document.activeElement)) {
+        event.preventDefault();
+        panel.current.focus();
+        return;
+      }
       if (event.key === 'Tab' && panel.current) {
         const focusable = panel.current.querySelectorAll<HTMLElement>(
           'button:not(:disabled), [href], input, textarea, [tabindex]:not([tabindex="-1"])'
@@ -380,7 +387,13 @@ export function Modal({
       }
     };
     document.addEventListener('keydown', keydown);
-    panel.current?.querySelector<HTMLElement>('textarea, input, [data-autofocus]')?.focus();
+    const initial =
+      panel.current?.querySelector<HTMLElement>('textarea, input, [data-autofocus]') ??
+      panel.current?.querySelector<HTMLElement>(
+        'button:not([aria-label="Close"]):not(:disabled), [href]'
+      ) ??
+      panel.current;
+    initial?.focus();
     return () => {
       document.body.style.overflow = overflow;
       document.removeEventListener('keydown', keydown);
@@ -401,6 +414,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={label}
+        tabIndex={-1}
         className="animate-float flex h-full w-full flex-col overscroll-contain border-border-default bg-bg-elevated shadow-float sm:h-auto sm:max-h-[84vh] sm:border"
         style={{ maxWidth: width }}
       >

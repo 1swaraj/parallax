@@ -184,7 +184,7 @@ export function Composer({
               </Button>
             )}
           </div>
-          {quoteOf && <QuotedPost post={quoteOf} />}
+          {quoteOf && <QuotedPost post={quoteOf} link={false} />}
           {expanded && (
             <div
               className={`mt-2 flex items-center justify-between gap-3 py-2 ${variant === 'inline' && (focused || text) ? 'border-t border-border-default' : ''} ${variant === 'modal' ? 'border-t border-border-default' : ''}`}

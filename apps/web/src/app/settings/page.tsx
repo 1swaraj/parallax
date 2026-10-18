@@ -1,9 +1,10 @@
 'use client';
 
 import { useMutation } from '@tanstack/react-query';
-import { useDisconnect } from 'wagmi';
+import { useConnection, useDisconnect } from 'wagmi';
 import { atHandle, Avatar, displayName } from '@/components/account';
 import { Icon } from '@/components/icons';
+import { ConnectWalletButton, LogOutButton } from '@/components/auth';
 import { useAuthModal, useEditProfile } from '@/components/modals';
 import { useTheme, type Theme } from '@/components/theme';
 import { useToast } from '@/components/toast';
@@ -144,6 +145,7 @@ function FeesSection() {
   const { account } = useSession();
   const { data } = useProfile(account, null);
   const [mode, setMode] = useGasMode();
+  const { isConnected } = useConnection();
   const { enableSponsorship } = useLensActions();
   const toast = useToast();
   const enable = useMutation({
@@ -181,6 +183,14 @@ function FeesSection() {
           </SelectionCard>
         ))}
       </div>
+      {(mode === 'direct' || (data && !data.account.sponsored)) && !isConnected && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-border-default bg-bg-elevated px-4 py-3">
+          <p className="text-sm text-text-secondary">
+            Connect the wallet that owns this account to pay from it.
+          </p>
+          <ConnectWalletButton />
+        </div>
+      )}
       {data && !data.account.sponsored && (
         <div className="relative mt-4 flex flex-wrap items-center justify-between gap-3 bg-status-info-bg py-3 pr-4 pl-4">
           <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-status-info" />
@@ -239,9 +249,12 @@ export default function SettingsPage() {
             <p className="text-sm text-text-secondary">
               Sign in to edit your profile and choose who pays network fees.
             </p>
-            <Button variant="primary" onClick={openAuth}>
-              Sign in
-            </Button>
+            <div className="flex gap-2">
+              {owner && <LogOutButton />}
+              <Button variant="primary" onClick={openAuth}>
+                {owner ? 'Create account' : 'Sign in'}
+              </Button>
+            </div>
           </div>
         </Section>
       )}

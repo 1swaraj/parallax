@@ -342,6 +342,47 @@ export function AuthFlow({ onDone }: { onDone: () => void }) {
   );
 }
 
+/** Connects a wallet while signed in, to pay from it: the session stays as it is. */
+export function ConnectWalletButton() {
+  const connectors = useConnectors();
+  const { mutate: connect, isPending } = useConnect();
+  const toast = useToast();
+  return (
+    <Dropdown
+      align="left"
+      items={connectors.map((connector) => ({
+        label: connector.name === 'Injected' ? 'Browser wallet' : connector.name,
+        icon: 'wallet' as const,
+        onSelect: () =>
+          connect(
+            { connector },
+            { onError: (error) => toast.error(error.message.split('\n')[0]!) }
+          ),
+      }))}
+      trigger={({ toggle, open }) => (
+        <Button size="sm" aria-expanded={open} disabled={isPending} onClick={toggle}>
+          {isPending ? 'Connecting…' : 'Connect wallet'}
+        </Button>
+      )}
+    />
+  );
+}
+
+/** Log out, for a wallet that signed in but has no account yet. */
+export function LogOutButton() {
+  const { signOut } = useSession();
+  const { mutate: disconnect } = useDisconnect();
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => signOut.mutate(undefined, { onSuccess: () => disconnect() })}
+    >
+      Log out
+    </Button>
+  );
+}
+
 /** The account chip at the bottom of the sidebar, with Log out. */
 export function AccountMenu() {
   const { account, signOut } = useSession();

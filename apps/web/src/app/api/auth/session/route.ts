@@ -8,6 +8,14 @@ import { getSession } from '@/lib/server/session';
 export async function GET() {
   return handle(async () => {
     const session = await getSession();
+    // Signed in without an account: one may have been created since (e.g. from the wallet), so look again.
+    if (session.owner && !session.account) {
+      const [found] = await accountsOwnedBy(session.owner).catch(() => []);
+      if (found) {
+        session.account = found;
+        await session.save();
+      }
+    }
     return NextResponse.json(
       { owner: session.owner ?? null, account: session.account ?? null },
       { headers: { 'cache-control': 'no-store' } }

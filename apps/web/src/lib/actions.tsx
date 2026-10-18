@@ -24,12 +24,7 @@ import {
   type Log,
 } from 'viem';
 import { useConfig, useConnection } from 'wagmi';
-import {
-  getTransactionReceipt,
-  sendTransaction,
-  switchChain,
-  waitForTransactionReceipt,
-} from 'wagmi/actions';
+import { sendTransaction, switchChain, waitForTransactionReceipt } from 'wagmi/actions';
 import { CHAIN_ID, contracts } from './config';
 import { useProfile, waitForIndexer } from './indexer';
 import { api, useSession } from './session';
@@ -64,16 +59,16 @@ export function useGasMode(): [GasMode, (mode: GasMode) => void] {
 
 export type Profile = { name?: string; bio?: string; picture?: string };
 
-export type ActionResult = { blockNumber: bigint; logs: Log[] };
+/** What an action did: its block (to wait for the indexer), and the post it created, if any. */
+export type ActionResult = { blockNumber: bigint; postId: string | null };
 
-/** The id of the post a transaction created, from its Lens_Feed_PostCreated event. */
-export function createdPostId(result: ActionResult): string | null {
-  const [event] = parseEventLogs({
-    abi: feedAbi,
-    eventName: 'Lens_Feed_PostCreated',
-    logs: result.logs,
-  });
+function postIdIn(logs: Log[]): string | null {
+  const [event] = parseEventLogs({ abi: feedAbi, eventName: 'Lens_Feed_PostCreated', logs });
   return event ? event.args.postId.toString() : null;
+}
+
+export function createdPostId(result: ActionResult): string | null {
+  return result.postId;
 }
 
 /**
@@ -113,20 +108,14 @@ export function useLensActions() {
     [config, chainId, address, owner]
   );
 
-  /** The relayer waited for the receipt; fetch its logs, which the UI needs for created post ids. */
-  const relay = useCallback(
-    async (path: string, body: unknown): Promise<ActionResult> => {
-      const result = await api<{ hash?: Hex; blockNumber: string }>(path, {
-        method: 'POST',
-        body,
-      });
-      const logs = result.hash
-        ? (await getTransactionReceipt(config, { hash: result.hash, chainId: CHAIN_ID })).logs
-        : [];
-      return { blockNumber: BigInt(result.blockNumber), logs };
-    },
-    [config]
-  );
+  /** The relayer already waited for the receipt, and says which post it created. */
+  const relay = useCallback(async (path: string, body: unknown): Promise<ActionResult> => {
+    const result = await api<{ blockNumber: string; postId?: string | null }>(path, {
+      method: 'POST',
+      body,
+    });
+    return { blockNumber: BigInt(result.blockNumber), postId: result.postId ?? null };
+  }, []);
 
   const run = useCallback(
     async (call: AccountCall | ((account: Address) => AccountCall)): Promise<ActionResult> => {
@@ -137,7 +126,10 @@ export function useLensActions() {
       try {
         const result = sponsored
           ? await relay('/api/relay', resolved)
-          : await sendFromWallet(account, directExecution(resolved));
+          : await sendFromWallet(account, directExecution(resolved)).then((receipt) => ({
+              blockNumber: receipt.blockNumber,
+              postId: postIdIn(receipt.logs),
+            }));
         await waitForIndexer(queryClient, result.blockNumber);
         return result;
       } catch (error) {
@@ -185,8 +177,22 @@ export function useLensActions() {
         if (!created) {
           throw new Error('The account was not created');
         }
-        await api('/api/auth/session', { method: 'PUT', body: { account: created.args.account } });
         await waitForIndexer(queryClient, receipt.blockNumber);
+        // The server checks ownership on its own RPC, which can be a block behind the wallet's.
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await api('/api/auth/session', {
+              method: 'PUT',
+              body: { account: created.args.account },
+            });
+            break;
+          } catch (error) {
+            if (attempt >= 4) {
+              throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+        }
         setAccount(created.args.account);
         return created.args.account;
       } catch (error) {
