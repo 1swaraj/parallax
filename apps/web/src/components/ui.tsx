@@ -352,6 +352,7 @@ export function Modal({
   width?: number;
   actions?: ReactNode;
 }) {
+  const scrim = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) {
@@ -361,6 +362,12 @@ export function Modal({
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const keydown = (event: KeyboardEvent) => {
+      // A layer opened over this one (a confirmation, WalletConnect's QR code) keeps its own keys. It needn't take
+      // focus, so look at what's on top.
+      const top = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+      if (top && !scrim.current?.contains(top)) {
+        return;
+      }
       if (event.key === 'Escape') {
         onClose();
       }
@@ -405,6 +412,7 @@ export function Modal({
   }
   return createPortal(
     <div
+      ref={scrim}
       className="fixed inset-0 z-50 flex items-start justify-center bg-overlay sm:pt-[8vh]"
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >

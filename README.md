@@ -180,31 +180,32 @@ Parallax runs as a Next.js app on Vercel (the pages and the relayer's API), and 
 | Functions region | The Railway Postgres's (`iad1` for `us-east4`): an action makes ~15 database round trips       |
 | Fluid compute    | On (the default). The sponsored routes set `maxDuration = 60`                                  |
 
-| Variable                            | Where                              | What                                                                                                                      |
-| ----------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_CHAIN_ID`              | Vercel                             | `10143` (testnet) or `143`. Read at build time                                                                            |
-| `NEXT_PUBLIC_RPC_URL`               | Vercel                             | The RPC browsers use. Public: no unrestricted API key                                                                     |
-| `NEXT_PUBLIC_APP_URL`               | Vercel, Production only            | The app's public URL: sign-in messages must name its host. Read at build time                                             |
-| `RPC_URL`                           | Vercel, sensitive                  | The server's RPC, e.g. a paid one. The public testnet RPC rate-limits per IP, which Vercel shares                         |
-| `INDEXER_URL`                       | Vercel, for builds too             | The indexer's public URL. The `/indexer` proxy is compiled in: changing it takes a redeploy                               |
-| `RELAYER_PRIVATE_KEYS`              | Vercel, sensitive, Production only | Comma-separated relayer keys (`RELAYER_PRIVATE_KEY` for a single one)                                                     |
-| `SESSION_SECRET`                    | Vercel, sensitive                  | 32+ random characters (`openssl rand -hex 32`)                                                                            |
-| `DATABASE_URL`                      | Vercel, sensitive                  | Railway Postgres's `DATABASE_PUBLIC_URL` + `?sslmode=require`. Required: without it, sponsoring answers 503               |
-| `DATABASE_POOL_SIZE`                | Vercel                             | Connections per instance (5), and 1 per relayer. Instances × (size + relayers) must fit `max_connections` (Railway: 100)  |
-| `SPONSOR_GAS_BUDGET_PER_HOUR`       | Vercel                             | Gas all relayers may spend per hour, e.g. `500000000` (~51 MON at 102 gwei). Required: without it, sponsoring answers 503 |
-| `SPONSOR_MAX_GAS_PER_TX`            | Vercel                             | Highest gas limit one sponsored action may have (1500000). Over it: 400, the user can pay instead                         |
-| `SPONSOR_MAX_GAS_PER_SIGNUP`        | Vercel                             | The same for a sponsored sign-up (3000000)                                                                                |
-| `DISPLAY_FONT_URL`                  | Vercel, build                      | URL of the titles' font file, which isn't in this repo; the build downloads it. Unset: titles use Inter                   |
-| `RELAY_PAUSED`                      | Vercel                             | `true` turns sponsored actions off (503). Takes a redeploy                                                                |
-| `RELAY_RATE_LIMIT_PER_MINUTE`       | Vercel                             | Sponsored actions per Account per minute (30)                                                                             |
-| `SIGNUP_RATE_LIMIT_PER_HOUR`        | Vercel                             | Sign-ups per owner per hour (3)                                                                                           |
-| `SIGNUP_RATE_LIMIT_PER_IP_PER_HOUR` | Vercel                             | Sign-ups per IP (IPv6: per /64) per hour (10)                                                                             |
-| `SPONSOR_SIGNUPS_PER_HOUR`          | Vercel                             | Sign-ups in all per hour (200)                                                                                            |
-| `LIKE_RATE_LIMIT_PER_MINUTE`        | Vercel                             | Likes and unlikes per Account per minute (60)                                                                             |
-| `RELAYER_MIN_BALANCE_MON`           | Vercel                             | `/api/health` turns 503 when a relayer has less MON (5)                                                                   |
-| `INDEXER_MAX_LAG_BLOCKS`            | Vercel                             | ... or when the indexer is more blocks behind (50)                                                                        |
-| `HEALTH_TOKEN`                      | Vercel, sensitive                  | Bearer token that shows `/api/health`'s details. Unset: only the status                                                   |
-| `PONDER_*`, `DATABASE_URL`          | Railway (indexer)                  | See `apps/indexer/.env.example`                                                                                           |
+| Variable                               | Where                              | What                                                                                                                      |
+| -------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_CHAIN_ID`                 | Vercel                             | `10143` (testnet) or `143`. Read at build time                                                                            |
+| `NEXT_PUBLIC_RPC_URL`                  | Vercel                             | The RPC browsers use. Public: no unrestricted API key                                                                     |
+| `NEXT_PUBLIC_APP_URL`                  | Vercel, Production only            | The app's public URL: sign-in messages must name its host. Read at build time                                             |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | Vercel                             | A Reown project ID: adds WalletConnect to sign-in, for phones. Allowlist the app's domains in Reown. Read at build time   |
+| `RPC_URL`                              | Vercel, sensitive                  | The server's RPC, e.g. a paid one. The public testnet RPC rate-limits per IP, which Vercel shares                         |
+| `INDEXER_URL`                          | Vercel, for builds too             | The indexer's public URL. The `/indexer` proxy is compiled in: changing it takes a redeploy                               |
+| `RELAYER_PRIVATE_KEYS`                 | Vercel, sensitive, Production only | Comma-separated relayer keys (`RELAYER_PRIVATE_KEY` for a single one)                                                     |
+| `SESSION_SECRET`                       | Vercel, sensitive                  | 32+ random characters (`openssl rand -hex 32`)                                                                            |
+| `DATABASE_URL`                         | Vercel, sensitive                  | Railway Postgres's `DATABASE_PUBLIC_URL` + `?sslmode=require`. Required: without it, sponsoring answers 503               |
+| `DATABASE_POOL_SIZE`                   | Vercel                             | Connections per instance (5), and 1 per relayer. Instances × (size + relayers) must fit `max_connections` (Railway: 100)  |
+| `SPONSOR_GAS_BUDGET_PER_HOUR`          | Vercel                             | Gas all relayers may spend per hour, e.g. `500000000` (~51 MON at 102 gwei). Required: without it, sponsoring answers 503 |
+| `SPONSOR_MAX_GAS_PER_TX`               | Vercel                             | Highest gas limit one sponsored action may have (1500000). Over it: 400, the user can pay instead                         |
+| `SPONSOR_MAX_GAS_PER_SIGNUP`           | Vercel                             | The same for a sponsored sign-up (3000000)                                                                                |
+| `DISPLAY_FONT_URL`                     | Vercel, build                      | URL of the titles' font file, which isn't in this repo; the build downloads it. Unset: titles use Inter                   |
+| `RELAY_PAUSED`                         | Vercel                             | `true` turns sponsored actions off (503). Takes a redeploy                                                                |
+| `RELAY_RATE_LIMIT_PER_MINUTE`          | Vercel                             | Sponsored actions per Account per minute (30)                                                                             |
+| `SIGNUP_RATE_LIMIT_PER_HOUR`           | Vercel                             | Sign-ups per owner per hour (3)                                                                                           |
+| `SIGNUP_RATE_LIMIT_PER_IP_PER_HOUR`    | Vercel                             | Sign-ups per IP (IPv6: per /64) per hour (10)                                                                             |
+| `SPONSOR_SIGNUPS_PER_HOUR`             | Vercel                             | Sign-ups in all per hour (200)                                                                                            |
+| `LIKE_RATE_LIMIT_PER_MINUTE`           | Vercel                             | Likes and unlikes per Account per minute (60)                                                                             |
+| `RELAYER_MIN_BALANCE_MON`              | Vercel                             | `/api/health` turns 503 when a relayer has less MON (5)                                                                   |
+| `INDEXER_MAX_LAG_BLOCKS`               | Vercel                             | ... or when the indexer is more blocks behind (50)                                                                        |
+| `HEALTH_TOKEN`                         | Vercel, sensitive                  | Bearer token that shows `/api/health`'s details. Unset: only the status                                                   |
+| `PONDER_*`, `DATABASE_URL`             | Railway (indexer)                  | See `apps/indexer/.env.example`                                                                                           |
 
 Scope the relayer keys and `DATABASE_URL` to Production. A preview deployment runs a branch's code: give previews
 their own relayer and database, or none.
