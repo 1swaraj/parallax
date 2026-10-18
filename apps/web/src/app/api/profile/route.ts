@@ -1,4 +1,4 @@
-import { sponsorRouterAbi } from '@lens-monad/protocol';
+import { EMPTY_SOURCE_STAMP, sponsorRouterAbi } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
 import { contracts } from '@/lib/config';
 import { sendAsRelayer } from '@/lib/server/chain';
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
         address: contracts.SponsorRouter,
         abi: sponsorRouterAbi,
         functionName: 'setMetadataURI',
-        args: [account, metadataURI],
+        args: [account, metadataURI, EMPTY_SOURCE_STAMP],
       },
       account,
       maxGasPerTransaction()

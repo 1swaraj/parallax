@@ -178,7 +178,7 @@ export const SPONSOR_ROUTER_PERMISSIONS = {
   canSetMetadataURI: true,
 } as const;
 
-const EMPTY_SOURCE_STAMP = {
+export const EMPTY_SOURCE_STAMP = {
   source: zeroAddress,
   originalMsgSender: zeroAddress,
   validator: zeroAddress,
