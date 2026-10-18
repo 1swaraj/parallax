@@ -40,6 +40,9 @@
   --accent-hover: #5740d6;
   --accent-pressed: #4230aa;
   --accent-subtle: #f0eeff;
+  /* The logo's colors (components/brand.tsx): Monad's purple, and a grey from this palette. */
+  --brand-purple: #6e54ff;
+  --brand-grey: #727285;
 
   --status-success-fg: #15803d;
   --status-success-bg: #ebf8f0;
@@ -152,6 +155,7 @@
   --border-focus: #8270ff;
 
   --accent-subtle: #1c1449;
+  --brand-grey: #aaaabf;
 
   --status-success-fg: #86efac;
   --status-success-bg: #0e1f14;

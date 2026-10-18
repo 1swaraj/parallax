@@ -75,36 +75,3 @@ export function Icon({
 }
 
 /** Parallax's mark: two offset lens elements whose overlap forms a lens. A rounded square, like Monad's. */
-export function Logo({ size = 28, title }: { size?: number; title?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      role={title ? 'img' : undefined}
-      aria-label={title}
-      aria-hidden={title ? undefined : true}
-      className="shrink-0"
-    >
-      <rect width="24" height="24" rx="4" fill="var(--accent-primary)" />
-      <circle cx="10" cy="10" r="5" fill="none" stroke="var(--text-on-accent)" strokeWidth="1.5" />
-      <circle cx="14" cy="14" r="5" fill="none" stroke="var(--text-on-accent)" strokeWidth="1.5" />
-      <path
-        d="M14.915 9.085A5 5 0 0 1 9.085 14.915A5 5 0 0 1 14.915 9.085Z"
-        fill="var(--text-on-accent)"
-      />
-    </svg>
-  );
-}
-
-/** Mark and name. */
-export function Wordmark({ size = 28 }: { size?: number }) {
-  return (
-    <span className="flex items-center gap-3">
-      <Logo size={size} />
-      <span className="font-display text-xl leading-7 font-medium tracking-[-0.01em] text-text-primary">
-        Parallax
-      </span>
-    </span>
-  );
-}

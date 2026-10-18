@@ -1,4 +1,6 @@
 import { ImageResponse } from 'next/og';
+import fs from 'node:fs';
+import path from 'node:path';
 import { APP_NAME, APP_TAGLINE } from '@/lib/brand';
 
 export const alt = `${APP_NAME}: ${APP_TAGLINE}`;
@@ -9,7 +11,8 @@ export const contentType = 'image/png';
 const BG = '#FBFAF9';
 const INK = '#26262B';
 const MUTED = '#727285';
-const PURPLE = '#6E54FF';
+
+const ICON = `data:image/svg+xml;base64,${fs.readFileSync(path.join(process.cwd(), 'src/app/icon.svg')).toString('base64')}`;
 
 /** The default link preview: the mark, the name, what it is, on the dot grid. */
 export default function Image() {
@@ -29,12 +32,8 @@ export default function Image() {
         fontFamily: 'sans-serif',
       }}
     >
-      <svg width="120" height="120" viewBox="0 0 24 24">
-        <rect width="24" height="24" rx="4" fill={PURPLE} />
-        <circle cx="10" cy="10" r="5" fill="none" stroke="#fff" strokeWidth="1.5" />
-        <circle cx="14" cy="14" r="5" fill="none" stroke="#fff" strokeWidth="1.5" />
-        <path d="M14.915 9.085A5 5 0 0 1 9.085 14.915A5 5 0 0 1 14.915 9.085Z" fill="#fff" />
-      </svg>
+      {/* The square mark (components/brand.tsx, app/icon.svg), as an image: it uses masks. */}
+      <img width={120} height={120} src={ICON} alt="" />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <div style={{ fontSize: 112, fontWeight: 600, letterSpacing: -3 }}>{APP_NAME}</div>
         <div style={{ fontSize: 44, color: MUTED }}>{APP_TAGLINE}</div>

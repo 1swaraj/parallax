@@ -116,17 +116,16 @@ const shot = (name) => page.screenshot({ path: path.join(SHOTS, `${name}.png`) }
 const username = `ui${Date.now().toString(36)}`;
 const profile = { handle: username, name: 'UI Walkthrough' };
 
-await step('home, signed out', async () => {
+await step('landing, signed out', async () => {
   await page.goto(APP, { waitUntil: 'networkidle' });
-  await page.getByRole('heading', { name: 'Home' }).waitFor();
-  await shot('01-home-signed-out');
+  await page.getByRole('heading', { name: 'Your followers come with you.' }).waitFor();
+  await shot('01-landing-signed-out');
 });
 
 await step('sign in with the browser wallet', async () => {
-  await page.getByRole('button', { name: /join parallax/i }).click();
+  await page.getByRole('button', { name: /continue with browser wallet/i }).click();
   await page.getByRole('dialog', { name: 'Sign in' }).waitFor();
-  await shot('02-sign-in-connect');
-  await page.getByRole('button', { name: 'Browser wallet' }).click();
+  await shot('02-sign-in');
 });
 
 await step('create an account', async () => {

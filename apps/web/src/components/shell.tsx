@@ -5,7 +5,6 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useConnection } from 'wagmi';
 import { APP_NAME, APP_PITCH, APP_TAGLINE } from '@/lib/brand';
-import { EXPLORER_URL } from '@/lib/config';
 import {
   useLastSeenNotification,
   useProfile,
@@ -18,9 +17,11 @@ import { useLikesSeen, useUnreadLikes } from '@/lib/likes';
 import { useSession } from '@/lib/session';
 import { AccountRow, Avatar, handleOf } from './account';
 import { AccountMenu, SignOutButton } from './auth';
-import { Icon, Logo, Wordmark, type IconName } from './icons';
+import { FooterLinks } from './footer-links';
+import { Landing } from './landing';
+import { Logo, Wordmark } from './brand';
+import { Icon, type IconName } from './icons';
 import { useAuthModal, useCompose } from './modals';
-import { ThemeToggle } from './theme';
 import { Button } from './ui';
 
 type NavItem = { href: string; label: string; icon: IconName; badge?: number };
@@ -89,7 +90,7 @@ function Sidebar() {
             <Logo size={28} />
           </span>
           <span className="max-xl:hidden">
-            <Wordmark size={28} />
+            <Wordmark height={20} />
           </span>
         </Link>
         <nav aria-label="Primary" className="flex flex-col gap-1">
@@ -351,46 +352,18 @@ function JoinCard() {
   );
 }
 
-/** Footer links: what this runs on, and the explorer to check it. */
-function NetworkStrip() {
-  return (
-    <footer className="flex flex-col gap-3 px-1 pb-6">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-tertiary">
-        <a href="https://lens.xyz" target="_blank" rel="noreferrer" className="hover:underline">
-          Lens Protocol
-        </a>
-        <a href="https://monad.xyz" target="_blank" rel="noreferrer" className="hover:underline">
-          Monad
-        </a>
-        <a
-          href="https://docs.monad.xyz"
-          target="_blank"
-          rel="noreferrer"
-          className="hover:underline"
-        >
-          Docs
-        </a>
-        {EXPLORER_URL && (
-          <a href={EXPLORER_URL} target="_blank" rel="noreferrer" className="hover:underline">
-            Explorer
-          </a>
-        )}
-        <ThemeToggle />
-      </div>
-    </footer>
-  );
-}
-
 function Aside() {
   const pathname = usePathname();
   const { account } = useSession();
   return (
     <aside className="sticky top-0 hidden h-dvh w-[340px] shrink-0 flex-col gap-4 overflow-y-auto py-2 lg:flex">
-      {pathname !== '/explore' && <SearchBox />}
+      {account && pathname !== '/explore' && <SearchBox />}
       {!account && <JoinCard />}
-      <Trends />
+      {account && <Trends />}
       {account && pathname !== '/explore' && <WhoToFollow />}
-      <NetworkStrip />
+      <footer className="px-1 pb-6">
+        <FooterLinks />
+      </footer>
     </aside>
   );
 }
@@ -463,10 +436,29 @@ function useComposeShortcut() {
   }, [account, compose]);
 }
 
+/** Pages signed-out visitors can open: a post, shared by its link. Everything else shows them the landing page. */
+function isPublicPath(pathname: string) {
+  return pathname.startsWith('/p/');
+}
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const main = useRef<HTMLElement>(null);
+  const pathname = usePathname();
+  const { account, isLoading } = useSession();
+  // The session is read in the browser: the server, and the first render that hydrates it, can't know it yet.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   useRouteFocus(main);
   useComposeShortcut();
+  if (!account && !isPublicPath(pathname)) {
+    return !mounted || isLoading ? (
+      <div className="grid min-h-dvh place-items-center" role="status" aria-label="Loading">
+        <Logo size={48} />
+      </div>
+    ) : (
+      <Landing />
+    );
+  }
   return (
     <>
       <a
