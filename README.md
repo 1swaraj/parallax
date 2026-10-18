@@ -158,10 +158,8 @@ Parallax runs as a Next.js app on Vercel (the pages and the relayer's API), and 
    it copies `deployments/<chainId>.json` into `packages/protocol/deployments` and regenerates
    `packages/protocol/src/address-books.ts`, which every package imports. With only the JSON at hand, drop it in
    `packages/protocol/deployments` and run `pnpm sync:contracts --address-books`. Commit both files.
-2. **Relayers.** Two or more keys, each allowlisted on the SponsorRouter (`RELAYERS` in `DeployLaunch`, or the Safe
-   calls `setRelayer(relayer, true)`) and funded with MON. Each Account always goes through the same relayer, so its
-   actions go out in order. Budget the funding with the gas budget below: at ~100 gwei,
-   a sign-up costs ~0.23 MON and a post ~0.09 MON.
+2. **Relayers.** Two or more keys, allowlisted on the SponsorRouter and funded with MON: see
+   [Relayers and sponsorship](#relayers-and-sponsorship).
 3. **Railway.** A Postgres service, and the indexer (`apps/indexer`: its `railway.json`, and its `.env.example` for
    `PONDER_CHAIN_ID`, `PONDER_RPC_URL`, `PONDER_GET_LOGS_RANGE` and `DATABASE_URL`). Give the indexer a public domain:
    it's the app's `INDEXER_URL`. The app keeps its own tables (relayer nonces, rate limits, the gas budget, and likes, which are
@@ -215,6 +213,85 @@ their own relayer and database, or none.
 the indexer's lag, the database, the gas used this hour and whether relaying is paused, and lists the problems; it
 never returns keys or URLs. To stop sponsoring, set `RELAY_PAUSED=true` and redeploy; to stop a relayer at once, the Safe
 calls `setRelayer(relayer, false)` (its Accounts get a 503 until the key is removed or allowed again).
+
+## Relayers and sponsorship
+
+Three things have to agree for a sponsored action to go through:
+
+- **The SponsorRouter** (onchain, owned by the Safe) lists the relayer EOAs that may call it (`setRelayer`) and the
+  functions it may call for an Account (`setFunction`). `DeployLaunch` sets both: the relayers from `RELAYERS`, and the
+  functions from `script/SponsoredFunctions.sol` (posting, editing and deleting, following, usernames, blocking).
+- **The Account** has the router as an account manager, allowed to execute transactions and set metadata, never to
+  move funds. Sign-ups through Parallax add it. An Account made elsewhere gets it from Settings → "Allow sponsorship",
+  which the user's wallet sends (`addAccountManager`) and pays for once. Users can revoke it any time.
+- **The app** holds the relayer keys, and narrows what it relays to what its client sends (`sponsor.ts`): posts
+  without rules, deletes, follows, blocks and profile edits. Sign-ups don't go through the router: the relayer calls
+  `LensFactory.createAccountWithUsernameFree` itself.
+
+Until the Safe runs `ActivateLaunch` (`lens-monad-protocol`), the launch's gates keep everyone but the Safe from
+creating usernames, posting and following, so sign-ups and posts fail even with the relayers set up.
+
+### Setting up a deployment
+
+1. **Create the keys**, two or more (each sends a few transactions per second, see Architecture): `cast wallet new`.
+   Use plain EOAs that send nothing else. Don't delegate them with EIP-7702: Monad's
+   [reserve balance](https://docs.monad.xyz/developer-essentials/reserve-balance) rules are stricter for delegated
+   accounts.
+2. **Allowlist them on the router.** On a new deployment, pass them to `DeployLaunch`:
+   `RELAYERS=0xRelayer1,0xRelayer2 forge script script/DeployLaunch.s.sol …`. On an existing one, the Safe calls
+   `setRelayer(relayer, true)` on the `SponsorRouter`, whose address is in
+   `packages/protocol/deployments/<chainId>.json`. Check each one:
+
+   ```sh
+   cast call <SponsorRouter> "isRelayer(address)(bool)" <relayer> --rpc-url <rpc>
+   ```
+
+3. **Fund them.** The hourly budget bounds what they spend together: `SPONSOR_GAS_BUDGET_PER_HOUR` × the gas price,
+   e.g. 500M gas ≈ 51 MON an hour at 102 gwei. A sign-up's gas limit is ~2.4M (~0.24 MON), a post's ~0.8M (~0.09 MON),
+   and Monad charges the limit ([gas pricing](https://docs.monad.xyz/developer-essentials/gas-pricing)). Keep each
+   relayer at 10 MON or more, its reserve balance (Before production). Monad's consensus checks a sender's gas against
+   its balance from 3 blocks back, so a key's first transaction only goes in a few blocks after the transfer that
+   funded it.
+4. **Configure the app** (Vercel, Production only): `RELAYER_PRIVATE_KEYS` comma-separated, `DATABASE_URL`, and
+   `SPONSOR_GAS_BUDGET_PER_HOUR`; without the last two, sponsored actions answer 503. The order of the keys decides
+   which relayer serves which Account. The gas caps, rate limits and `RELAYER_MIN_BALANCE_MON` have defaults (see the
+   table above), and `HEALTH_TOKEN` unlocks the checks in the next step.
+5. **Check it.** `/api/health` with the token lists each relayer, whether the router allowlists it, and its balance:
+
+   ```sh
+   curl -H "Authorization: Bearer $HEALTH_TOKEN" https://<app>/api/health
+   ```
+
+   Then sign up from a fresh wallet with no MON, and post.
+
+### Changing relayers
+
+- **Adding one.** Allowlist and fund it first, then add its key to `RELAYER_PRIVATE_KEYS` and redeploy. Most Accounts
+  move to another relayer, which is harmless between actions. A key the router doesn't allowlist answers 503 for its
+  Accounts.
+- **Removing one, or a leaked key.** The Safe calls `setRelayer(relayer, false)`, which stops it at once (its Accounts
+  get a 503), then the key comes out of `RELAYER_PRIVATE_KEYS` with a redeploy. To sweep its MON afterwards: Monad lets
+  a transfer take an account below 10 MON only when it sent nothing in the 3 blocks before, so send one transfer once
+  the relayer is idle.
+- **Pausing all of them.** `RELAY_PAUSED=true` and a redeploy (Operating it). Users can still pay from their wallets.
+
+### Locally
+
+`pnpm chain` allowlists anvil's account #3, the app's default relayer, so one relayer works with no setup. The
+concurrency end-to-end test needs two. After `pnpm chain`, allowlist anvil's #4 as the Safe (anvil's #0, which the node
+signs for):
+
+```sh
+cast send 0x19D9cef382F54eEd84F5028d03497C7d07E1e61E "setRelayer(address,bool)" \
+  0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65 true \
+  --from 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --unlocked --rpc-url http://127.0.0.1:8545
+```
+
+and give the app both keys in `apps/web/.env.local`:
+
+```sh
+RELAYER_PRIVATE_KEYS=0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6,0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a
+```
 
 ## Before production
 
