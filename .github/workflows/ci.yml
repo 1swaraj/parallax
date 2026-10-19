@@ -1,0 +1,149 @@
+# Checks every pull request and every push to main:
+#
+#   checks     formatting, types, and the unit tests, the Postgres implementations' included
+#   contracts  MediaStore's committed artifact is what its source builds to: its CREATE2 address depends on it
+#   e2e        the local stack (`pnpm chain`, the indexer, the app) and the end-to-end suites against it
+#
+# Deployments are Vercel's (the app) and Railway's (the indexer), from their Git integrations: see the README.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The lens-monad-protocol revision the README pins (PR #4: SponsorRouter and the staged address-book scripts).
+  LENS_CONTRACTS_REV: 02da644aebe224a3614fab2cdb4e1162c9d4a9c0
+  # `anvil --network monad` needs Foundry 1.8.0 or later.
+  FOUNDRY_VERSION: v1.8.5
+
+jobs:
+  checks:
+    name: Format, types and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+  contracts:
+    name: MediaStore artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/build-contracts.mjs
+      - name: The committed artifact matches the source
+        run: git diff --exit-code packages/protocol/src/media-store-artifact.ts
+
+  e2e:
+    name: End to end (local Monad node)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LENS_CONTRACTS_DIR: ${{ github.workspace }}/lens-monad-protocol
+      # The app's server: anvil's 4th and 5th accounts as relayers (the concurrency test needs two), its health
+      # details for the tests, and room for the sign-ups the suites make from one IP.
+      HEALTH_TOKEN: ci
+      RELAYER_PRIVATE_KEYS: 0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6,0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a
+      SIGNUP_RATE_LIMIT_PER_HOUR: 1000
+      SIGNUP_RATE_LIMIT_PER_IP_PER_HOUR: 1000
+      SPONSOR_SIGNUPS_PER_HOUR: 1000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: monad-developers/lens-monad-protocol
+          ref: ${{ env.LENS_CONTRACTS_REV }}
+          path: lens-monad-protocol
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Cache the Lens contracts' build
+        uses: actions/cache@v4
+        with:
+          path: |
+            lens-monad-protocol/out
+            lens-monad-protocol/cache
+          key: lens-forge-${{ env.LENS_CONTRACTS_REV }}-${{ env.FOUNDRY_VERSION }}
+      - name: Build the Lens contracts
+        working-directory: lens-monad-protocol
+        run: |
+          corepack enable
+          yarn install --frozen-lockfile
+          forge build
+
+      - name: Start the local node, deploy Lens and MediaStore
+        run: |
+          SEED=0 pnpm chain > chain.log 2>&1 &
+          timeout 900 bash -c 'until grep -q "Lens is deployed" chain.log; do sleep 2; done' || (cat chain.log; exit 1)
+      - name: Allowlist a second relayer
+        # Anvil's 1st account is the local Safe; anvil's 5th is the second key in RELAYER_PRIVATE_KEYS.
+        run: |
+          cast send 0x19D9cef382F54eEd84F5028d03497C7d07E1e61E "setRelayer(address,bool)" \
+            0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65 true \
+            --from 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --unlocked --rpc-url http://127.0.0.1:8545
+      - name: Start the indexer
+        run: |
+          pnpm indexer > indexer.log 2>&1 &
+          timeout 300 bash -c 'until curl -sf http://127.0.0.1:42069/ready > /dev/null; do sleep 2; done' || (cat indexer.log; exit 1)
+      - name: Build and start the app
+        run: |
+          pnpm --filter @lens-monad/web build
+          pnpm --filter @lens-monad/web start > web.log 2>&1 &
+          timeout 120 bash -c 'until curl -s -o /dev/null http://127.0.0.1:3000/api/health; do sleep 2; done' || (cat web.log; exit 1)
+
+      - run: pnpm test:e2e
+      - run: pnpm --filter @lens-monad/indexer test:e2e
+      - run: pnpm --filter @lens-monad/web test:e2e
+
+      - name: Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: |
+            chain.log
+            indexer.log
+            web.log
