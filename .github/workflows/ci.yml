@@ -2,7 +2,9 @@
 #
 #   checks     formatting, types, and the unit tests, the Postgres implementations' included
 #   contracts  MediaStore's committed artifact is what its source builds to: its CREATE2 address depends on it
-#   e2e        the local stack (`pnpm chain`, the indexer, the app) and the end-to-end suites against it
+#   e2e        the local stack (`pnpm chain`, the indexer, the app) and the end-to-end suites against it. The Lens
+#              contracts are a private repository: this needs the LENS_CONTRACTS_TOKEN secret, a token that can read
+#              monad-developers/lens-monad-protocol, and is skipped without it (e.g. on forks' pull requests).
 #
 # Deployments are Vercel's (the app) and Railway's (the indexer), from their Git integrations: see the README.
 
@@ -69,8 +71,27 @@ jobs:
       - name: The committed artifact matches the source
         run: git diff --exit-code packages/protocol/src/media-store-artifact.ts
 
+  e2e-gate:
+    name: End-to-end gate
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.token.outputs.enabled }}
+    steps:
+      - id: token
+        env:
+          TOKEN: ${{ secrets.LENS_CONTRACTS_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::End-to-end tests skipped: set the LENS_CONTRACTS_TOKEN secret to run them"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
   e2e:
     name: End to end (local Monad node)
+    needs: e2e-gate
+    if: needs.e2e-gate.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -90,6 +111,7 @@ jobs:
           ref: ${{ env.LENS_CONTRACTS_REV }}
           path: lens-monad-protocol
           submodules: recursive
+          token: ${{ secrets.LENS_CONTRACTS_TOKEN }}
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}

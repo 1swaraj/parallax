@@ -194,7 +194,8 @@ node apps/web/test/ui/passkey.mjs             # passkey accounts, with Chrome's 
 CI (`.github/workflows/ci.yml`) runs all of these but the UI scripts on every pull request and push to `main`: the
 unit tests against a Postgres service, so the shared implementations' tests run too, a check that MediaStore's
 committed artifact is what its source builds to, and the end-to-end suites against `pnpm chain`, the indexer and the
-app.
+app. `lens-monad-protocol` is private, so the end-to-end job needs a `LENS_CONTRACTS_TOKEN` secret that can read it
+(a fine-grained token with read access to its contents), and is skipped without it.
 
 The web end-to-end tests read `/api/health`'s details, so run them with the server's `HEALTH_TOKEN` set. The UI
 walkthrough needs `playwright-core` and a Chromium (`PLAYWRIGHT_CORE`, `CHROMIUM_PATH`), and saves screenshots
