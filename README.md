@@ -218,7 +218,7 @@ with a setup message. `/indexer` reads and authentication remain available.
 4. Leave sponsorship paused, or set an hourly budget and relayer keys. **Generate relayer key** creates and encrypts
    a key on the server and shows only its address, a funding reminder and the `cast send ... setRelayer` command for
    the router owner. It does not send transactions or change deployed contracts. Pasted keys are supported too.
-5. Optionally configure Resend, review the moderation placeholder, then finish. `/setup` closes after completion.
+5. Optionally configure Resend, configure access and moderation, then finish. `/setup` closes after completion.
 
 The owner can reopen setup only with `DATABASE_URL=… INSTANCE_SECRET=… pnpm admin:reset-owner`. This removes the
 owner, prints a new single-use token and records the reset in the audit log. Other team members and settings are
@@ -227,7 +227,7 @@ retained. The old token, including `SETUP_TOKEN`, cannot claim the instance agai
 `/admin` uses the same wallet/SIWE session as the app; no Lens account is needed. Sign in with your wallet on the
 home page, then open `/admin`. Visitors and wallets without an admin role get 404. The owner manages the team by wallet
 address or Lens username. Admins can edit branding, network, sponsorship, limits and email, and read the audit log;
-moderators can see overview and the moderation slot. Each member can opt into operator alerts on Overview.
+moderators can see overview, the moderation queue and moderation history. Each member can opt into operator alerts on Overview.
 Overview shows health details without a `HEALTH_TOKEN`, relayer balances, indexer lag, hourly gas and today's signups through this client (UTC), including wallet-paid signups. The audit log records every administrator write;
 its API supports pagination with `/api/admin/audit?before=<id>`.
 
@@ -251,9 +251,63 @@ relayer secrets show addresses, never key suffixes. `RELAYER_PRIVATE_KEYS` / `RE
 A generated relayer is appended to the stored list; an active env override must be removed before it can be used.
 Relayer nonce connections are opened lazily, with at most one held per key, including keys added through the panel.
 
-Moderation is instance-level: an operator can hide posts/accounts from its own reads and refuse sponsorship or
-relaying. **It cannot delete anything onchain. Lens content is permissionless.** The Moderation page is a placeholder
-for those controls.
+### Moderation
+
+`/admin/moderation` provides reports, account/post controls, filters, allowlist imports, invites and policy settings.
+`/admin/moderation-log` is a filtered audit view, with account history. The setup wizard includes the same policy editor.
+**An instance cannot delete anything onchain. Lens content is permissionless.** These controls govern admission,
+this server’s sponsorship/relay, and this app’s reads, including when its upstream indexer serves many instances.
+
+| Option                           | Default                                               | Enforced in                                                                                                                                   | What it cannot do                                                                                                                      |
+| -------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Sign-up mode                     | Open                                                  | `/api/signup` and wallet-paid admission; invite, wallet allowlist or token checks before creation                                             | Prevent account creation on Lens through other apps                                                                                    |
+| Turnstile bot check              | Off for initial/local setup; enable before production | Server verifies Cloudflare’s token, `signup` action and hostname before either sign-up path                                                   | Prove a unique human or replace spending limits                                                                                        |
+| Invite codes                     | None; generated codes default to one use              | Atomic redemption under a database lock; creator, redeemer, expiry and completed account recorded                                             | Reclaim an account already created; codes are shown only once                                                                          |
+| Allowlist / CSV                  | Empty                                                 | Sign-up checks wallet; external-account checks accept wallet or account address                                                               | Follow future username ownership changes; imports resolve usernames at import time                                                     |
+| Token gate                       | ERC-20, minimum 1 smallest unit; no contract selected | Configured chain RPC at admission, session refresh and server writes; 30-second balance cache                                                 | Lock tokens, stop transfers or inspect other chains; ERC-721 means any collection token, ERC-1155 means any balance of the selected ID |
+| Accounts created elsewhere       | Allow                                                 | Sign-in, account selection, refresh and server writes; approval or allowlist optional                                                         | Stop using those accounts elsewhere                                                                                                    |
+| Who gets sponsored               | Everyone                                              | Sign-up, relay and profile update; members/approved/nobody optional                                                                           | Stop wallet-paid transactions; approved-only sign-ups require wallet approval first                                                    |
+| New-account cooldown             | 0 hours (disabled); deny when enabled                 | Before relay simulation; optionally use the lower new-account rate                                                                            | Stop wallet-paid actions; unknown creation times are treated as new                                                                    |
+| Account sponsorship revoke       | Off                                                   | Before sponsored actions                                                                                                                      | Suspend access or take away wallet-paid use                                                                                            |
+| Home feed scope                  | Whole network                                         | App proxy scopes Home, Following and trend counts to network/members/curated account addresses                                                | Restrict network discovery in search or direct profiles                                                                                |
+| Hide post / account              | Nothing hidden                                        | App proxy, link previews, likes and email notifications; hidden thread references are redacted as “Hidden by moderators”                      | Delete onchain content or hide it from another instance                                                                                |
+| Account suspension               | Off                                                   | Sign-in, selection, refresh and server writes; also hidden in this instance’s reads                                                           | Revoke onchain ownership or prevent wallet-paid writes elsewhere                                                                       |
+| Word / domain / regex filters    | None                                                  | Relay inspects inline text before simulation; all app post reads apply rules, including posts from other apps                                 | Inspect remote offchain metadata that the indexer cannot decode; relayer refuses uninspectable non-repost metadata                     |
+| Filter actions                   | New rule defaults to block                            | Block refuses relay and hides matching reads; hide allows relay and hides reads; label allows relay and displays a revealable content warning | Prevent wallet-paid writes or keep labelled text secret                                                                                |
+| Role rates                       | Member 30/min, new 5/min, approved 60/min             | Per-account limiter before sponsorship, in addition to global limits; new-account rate takes precedence during cooldown                       | Increase global limits or limit wallet-paid chain activity                                                                             |
+| Reports                          | No reports; 10 submissions/account/hour               | Signed-in, ownership-checked server API; queue filters and bulk hide/suspend/dismiss; new reports call `notifyAdmins('new_reports', …)`       | Automatically determine whether a report is valid or remove content onchain                                                            |
+| Moderator role                   | No moderators until added by owner                    | Server authorization allows queue, hide, label, suspend and literal word/domain filters; admins configure policy and regex                    | Change policy, invites, allowlist, approvals, sponsorship settings or admin-only regex                                                 |
+| Moderation log / account history | Every action recorded                                 | Same transaction as the moderation change, using A’s audit log; policy updates are included                                                   | Rewrite onchain history; the UI shows the latest 100 matching entries                                                                  |
+
+Members are accounts created after this instance’s server admission. Wallet-paid creation obtains a 15-minute admission
+first; account selection verifies ownership and indexed creation time before recording membership. A client’s `signup`
+flag alone grants nothing. An invite reserves a use at admission; the same wallet can retry until it joins, then that
+redemption is completed. Admins can expire unused codes. Invite plaintext never goes into the database or audit log.
+Allowlist imports accept an address, `@username`, or the first CSV column (optional header). A username adds its Lens
+account and current owner. Use a separate app database for each instance; sharing an indexer does not share policy.
+
+Post pages over-fetch up to ten upstream pages, requesting only the remaining response capacity. Returned cursors
+cover every consumed upstream item, including hidden ones; a bounded scan can return a partial/empty page with a
+continuation. Filtered reads use `no-store`, discard upstream validators/ranges, and never expose raw SQL/GraphQL.
+Threads redact hidden ancestors, quotes and reposts. Trend counts are recomputed from at most 1,000 scanned matches
+per candidate, capped at 100 visible matches, considering up to four times the requested candidates (maximum 100).
+They are a bounded view of visible activity, rather than a complete network ranking. Likes/unread counts similarly
+inspect the latest 100 events. RE2 regex matching has linear evaluation; backreferences/lookaround are unsupported.
+
+Policy uses `instance_config.moderation` and its ten-second cache. Visibility/account data uses new `lens_web`
+moderation tables, loaded through the same locked automatic migration path and cached for five seconds. Balance
+checks cache for 30 seconds and fail closed if RPC fails. Cached relay moderation was measured with 300 requests,
+a real local Postgres limiter and an RE2 rule: p50 **2.41 ms**, p95 **3.89 ms**, p99 **6.31 ms**. This measures the added
+policy/metadata/limit work, excluding the existing ownership RPCs, simulation and submission. Cold caches, remote DB
+latency and a different rule set need measurement on the deployment. Token calls use the EVM contract interface
+supported on Monad ([differences from Ethereum](https://docs.monad.xyz/developer-essentials/differences)).
+
+For local moderation E2E, point `MODERATION_E2E_DATABASE_URL` at the isolated app database and run the web E2E suite
+with the full local protocol/indexer stack. It uses Anvil test wallets and a private local balance fixture; it refuses
+to mutate a nonlocal app or a chain other than 31337. `TEST_DATABASE_URL=… pnpm test` exercises pure policies,
+Postgres invite races, permissions, reports, pagination, and refusal before simulation. The moderation DB suite
+creates/drops its own temporary database, so its test database user needs `CREATEDB` permission. The browser walkthrough
+covers the moderation queue, adding/removing a filter, saving Home scope and the moderation log.
 
 ### Email
 
@@ -364,7 +418,7 @@ Parallax runs as a Next.js app on Vercel (the pages and the relayer's API), and 
 | `RESEND_FROM_ADDRESS`, `RESEND_DOMAIN`      | Vercel                             | Runtime email sender and verified domain overrides                                                                        |
 | `USER_EMAIL_ENABLED`                        | Vercel                             | Runtime override for optional user digests (`false` by default)                                                           |
 | `CRON_SECRET`                               | Vercel, sensitive                  | Bearer token protecting the operator alerts and digest cron                                                               |
-| `CAPTCHA_SECRET`                            | Vercel, sensitive                  | Optional override for the encrypted captcha secret; enforcement belongs to the moderation extension                       |
+| `CAPTCHA_SECRET`                            | Vercel, sensitive                  | Optional override for the encrypted Cloudflare Turnstile secret; checked by the sign-up API                               |
 | `HEALTH_TOKEN`                              | Vercel, sensitive                  | Bearer token that shows `/api/health` details; signed-in admins can also see them                                         |
 | `PONDER_*`, `DATABASE_URL`                  | Railway (indexer)                  | See `apps/indexer/.env.example`                                                                                           |
 | `MEDIA_BLOCKLIST`                           | Railway (indexer)                  | Image ids `/media` refuses (451), comma-separated: takedowns. The bytes stay on-chain; the app stops serving them         |
@@ -462,7 +516,8 @@ RELAYER_PRIVATE_KEYS=0x7c852118294e51e653712a81e05800f419141751be58f605c371e1514
 - **Relayer spend.** The relayer only sends the calls the app makes (posts without rules, deletes, follows, blocks),
   each under a gas cap, within rate limits, an hourly gas budget and an hourly sign-up cap shared by every instance.
   EOAs are free and IPs cheap, so the budget is what bounds spend, and someone can use up the sign-up cap on purpose:
-  sign-ups still need a check (captcha, or proof of personhood). Replies, quotes and follows still run the rules
+  enable **Turnstile bot check** in Setup/Admin → Moderation, configure its site key and encrypted secret, and register
+  the production hostname with Cloudflare. Both sponsored and wallet-paid admission verify the challenge. Replies, quotes and follows still run the rules
   already on the target post or account; the gas cap bounds those.
 - **Gas accounting.** The budget counts the receipts' `gasUsed`. Monad charges the gas limit (estimate + 10%): if its
   receipts report the gas used, the budget undercounts the MON spent by up to 10%.

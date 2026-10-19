@@ -6,8 +6,9 @@
 //
 // Needs playwright-core (PLAYWRIGHT_CORE to point at an install) and a Chromium (CHROMIUM_PATH).
 
-import { APP, open, RPC_URL } from './harness.mjs';
-import { completeSetup, changeBrandAndPause } from './instance.mjs';
+import path from 'node:path';
+import { APP, open, RPC_URL, SHOTS } from './harness.mjs';
+import { completeSetup, changeBrandAndPause, walkthroughModeration } from './instance.mjs';
 
 const { generatePrivateKey, privateKeyToAccount } = await import('viem/accounts');
 
@@ -109,6 +110,12 @@ await step('create an account', async () => {
 if (process.env.SETUP_TOKEN) {
   await step('change instance brand and refuse a paused sponsored post', () =>
     changeBrandAndPause(page, APP)
+  );
+}
+
+if (process.env.SETUP_TOKEN) {
+  await step('moderation queue, filters, policy and log', () =>
+    walkthroughModeration(page, APP, path.join(SHOTS, 'moderation.png'))
   );
 }
 

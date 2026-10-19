@@ -49,3 +49,31 @@ export async function setPaused(page, app, paused) {
   await page.getByRole('button', { name: 'Save sponsorship & limits', exact: true }).click();
   await page.getByText('Saved. Changes apply within 10 seconds.').waitFor();
 }
+
+export async function walkthroughModeration(page, app, screenshot) {
+  await page.goto(`${app}/admin/moderation`, { waitUntil: 'networkidle' });
+  await page.getByRole('heading', { name: 'Moderation', exact: true }).waitFor();
+  await page.getByLabel('Report status').selectOption('all');
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await page.getByLabel('Word, domain or regex').fill('walkthrough-blocked-word');
+  await page.getByRole('button', { name: 'Add filter', exact: true }).click();
+  await page.getByText('Saved to the moderation log.').waitFor();
+  await page
+    .getByRole('button', { name: /^Remove filter/ })
+    .first()
+    .waitFor();
+  if (screenshot) await page.screenshot({ path: screenshot, fullPage: true });
+  await page
+    .getByRole('button', { name: /^Remove filter/ })
+    .first()
+    .click();
+  await page.getByRole('button', { name: 'Policy', exact: true }).click();
+  await page.getByLabel('Home feed scope').selectOption('members');
+  await page.getByRole('button', { name: 'Save moderation policy', exact: true }).click();
+  await page.getByText('Moderation policy saved. Changes apply within 10 seconds.').waitFor();
+  await page.getByLabel('Home feed scope').selectOption('network');
+  await page.getByRole('button', { name: 'Save moderation policy', exact: true }).click();
+  await page.goto(`${app}/admin/moderation-log`, { waitUntil: 'networkidle' });
+  await page.getByText('moderation.filter', { exact: false }).first().waitFor();
+  await page.goto(app, { waitUntil: 'networkidle' });
+}
