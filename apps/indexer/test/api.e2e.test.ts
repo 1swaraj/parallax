@@ -1,3 +1,4 @@
+import { localTestChain } from '../../../packages/protocol/test/local-chain';
 // End-to-end test of the indexer's API, against the local node (`pnpm chain`) and a running indexer (`pnpm indexer`):
 // three Accounts sign up through the relayer, then post, mention, reply, quote, repost, follow, block and delete, and
 // the test reads back what the API serves about it.
@@ -13,7 +14,6 @@ import {
   follow,
   getDeployment,
   lensFactoryAbi,
-  monadLocal,
   repost,
   sponsorRouterAbi,
   textOnlyPost,
@@ -46,15 +46,15 @@ const RELAYER_KEY = '0x7c852118294e51e653712a81e05800f419141751be58f605c371e1514
 // Sign-ups and a few dozen transactions, each waited for by the indexer.
 const TIMEOUT = 120_000;
 
-const { contracts } = getDeployment(monadLocal.id);
+const { contracts } = getDeployment(localTestChain.id);
 const publicClient = createPublicClient({
-  chain: monadLocal,
-  transport: http(),
+  chain: localTestChain,
+  transport: http(localTestChain.rpcUrls.default.http[0]),
   pollingInterval: 100,
 });
 const relayer = createWalletClient({
-  chain: monadLocal,
-  transport: http(),
+  chain: localTestChain,
+  transport: http(localTestChain.rpcUrls.default.http[0]),
   account: privateKeyToAccount(RELAYER_KEY),
   pollingInterval: 100,
 });

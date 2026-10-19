@@ -130,7 +130,9 @@ describe('sessionSecret', () => {
     vi.stubEnv('VERCEL', '');
     expect(sessionSecret()).toHaveLength(48);
     vi.stubEnv('VERCEL', '1');
-    expect(() => sessionSecret()).toThrow('SESSION_SECRET must be set on Vercel');
+    expect(() => sessionSecret()).toThrow(
+      'INSTANCE_SECRET or SESSION_SECRET must be set on Vercel'
+    );
     vi.stubEnv('SESSION_SECRET', 'x'.repeat(32));
     expect(sessionSecret()).toBe('x'.repeat(32));
   });

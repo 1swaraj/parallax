@@ -1,3 +1,4 @@
+import { getSponsorshipConfig } from '@/lib/server/sponsorship-config';
 import { feedAbi, MEDIA_CHUNK_BYTES, sponsorRouterAbi } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
 import { isAddress, isHex, parseEventLogs, type Address, type Hex } from 'viem';
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
     }
     const { hash, blockNumber, logs } = await sendAsRelayer(
       {
-        address: contracts.SponsorRouter,
+        address: (await getSponsorshipConfig()).sponsorRouter,
         abi: sponsorRouterAbi,
         functionName: 'execute',
         args: [account, target as Address, data as Hex],

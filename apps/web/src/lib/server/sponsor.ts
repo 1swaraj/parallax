@@ -17,7 +17,7 @@ import {
   type Address,
   type Hex,
 } from 'viem';
-import { currentConfig } from '@/lib/server/instance-config';
+import { currentConfig } from './instance-config';
 import { mediaStore } from '../config';
 import { runtimeContracts as contracts } from './contracts';
 import { isOwnedBy, isSponsored, publicClient } from './chain';

@@ -71,6 +71,21 @@ jobs:
       - name: The committed artifact matches the source
         run: git diff --exit-code packages/protocol/src/media-store-artifact.ts
 
+  router:
+    name: Instance router artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Compiles with the pinned solc 0.8.28 (pnpm dlx), as the operator's pnpm instance:deploy-router expects.
+      - run: pnpm instance:build-router
+      - name: The committed artifact matches the source
+        run: git diff --exit-code packages/protocol/src/router/artifact.json
+
   e2e-gate:
     name: End-to-end gate
     runs-on: ubuntu-latest

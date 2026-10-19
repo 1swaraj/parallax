@@ -54,7 +54,7 @@ export function sessionSecret(): string {
   // The local default is public: a Vercel deployment left on chain 31337 (e.g. a preview missing its variables) would
   // sign sessions anyone can forge.
   if (!process.env.SESSION_SECRET && !process.env.INSTANCE_SECRET && process.env.VERCEL) {
-    throw new Error('SESSION_SECRET must be set on Vercel');
+    throw new Error('INSTANCE_SECRET or SESSION_SECRET must be set on Vercel');
   }
   const secret =
     process.env.SESSION_SECRET ||
@@ -81,7 +81,7 @@ export function serverRpcUrl(): string | undefined {
  * only the local chain allows sponsored actions with (see missingSponsorSettings).
  */
 export function databaseUrl(): string | undefined {
-  return process.env.DATABASE_URL || undefined;
+  return process.env.DATABASE_URL || process.env.POSTGRES_URL || undefined;
 }
 
 /** The app's public URL (NEXT_PUBLIC_APP_URL), or undefined when unset. */

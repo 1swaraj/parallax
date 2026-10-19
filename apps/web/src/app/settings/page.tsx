@@ -145,7 +145,6 @@ function AccountSection() {
 function FeesSection() {
   const { APP_NAME } = useBrand();
   const { account } = useSession();
-  const { data } = useProfile(account, null);
   const [mode, setMode] = useGasMode();
   const available = useSponsorship();
   const { isConnected } = useConnection();
@@ -313,7 +312,12 @@ export default function SettingsPage() {
               ['SponsorRouter', contracts.SponsorRouter],
             ] as const
           ).map(([topic, address]) => (
-            <SpecRow key={topic} topic={topic} value={address} href={explorerAddressUrl(address)} />
+            <SpecRow
+              key={topic}
+              topic={topic}
+              value={address ?? 'Loading…'}
+              href={address ? explorerAddressUrl(address) : null}
+            />
           ))}
         </div>
       </Section>

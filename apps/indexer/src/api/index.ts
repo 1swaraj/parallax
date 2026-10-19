@@ -1,3 +1,4 @@
+import { publicReads } from './public-reads';
 import {
   MEDIA_STORE_ADDRESS,
   mediaId,
@@ -80,6 +81,15 @@ const app = new Hono();
 if (process.env.ENABLE_GRAPHQL === 'true') {
   app.use('/graphql', graphql({ db, schema }));
 }
+
+// GraphQL is an explicit full-mode opt-in. Shared services must leave ENABLE_GRAPHQL unset.
+app.use(
+  '*',
+  publicReads({
+    limit: Number(process.env.INDEXER_RATE_LIMIT_PER_MINUTE ?? 600),
+    trustedIpHeader: process.env.INDEXER_TRUSTED_IP_HEADER,
+  })
+);
 
 // Errors are JSON `{ error }`. Unexpected ones are logged, without leaking their details to clients.
 app.onError((error, c) => {

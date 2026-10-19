@@ -1,3 +1,4 @@
+import { localTestChain } from './local-chain';
 // End-to-end flow against a local node with Lens deployed (`pnpm chain`): sponsored sign-up, posts, replies,
 // reposts, follows and blocks through SponsorRouter, then the same calls sent directly by the Account's owner.
 
@@ -26,7 +27,6 @@ import {
   getDeployment,
   graphAbi,
   lensFactoryAbi,
-  monadLocal,
   namespaceAbi,
   readPostContent,
   repost,
@@ -40,15 +40,15 @@ import {
 // Anvil's 4th account, the relayer DeployLaunch allowlists on chain 31337.
 const RELAYER_KEY = '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6';
 
-const { contracts } = getDeployment(monadLocal.id);
+const { contracts } = getDeployment(localTestChain.id);
 const publicClient = createPublicClient({
-  chain: monadLocal,
-  transport: http(),
+  chain: localTestChain,
+  transport: http(localTestChain.rpcUrls.default.http[0]),
   pollingInterval: 100,
 });
 const relayer = createWalletClient({
-  chain: monadLocal,
-  transport: http(),
+  chain: localTestChain,
+  transport: http(localTestChain.rpcUrls.default.http[0]),
   account: privateKeyToAccount(RELAYER_KEY),
   pollingInterval: 100,
 });
@@ -241,8 +241,8 @@ describe('Lens on a local Monad node', () => {
       params: [alice.owner.address, `0x${parseEther('1').toString(16)}`] as never,
     });
     const owner = createWalletClient({
-      chain: monadLocal,
-      transport: http(),
+      chain: localTestChain,
+      transport: http(localTestChain.rpcUrls.default.http[0]),
       account: alice.owner,
     });
     const hash = await owner.sendTransaction({

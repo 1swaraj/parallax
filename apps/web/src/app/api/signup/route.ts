@@ -1,3 +1,4 @@
+import { getSponsorshipConfig } from '@/lib/server/sponsorship-config';
 import {
   accountFactoryAbi,
   createAccountWithUsernameArgs,
@@ -118,7 +119,7 @@ export async function POST(request: Request) {
           owner: session.owner,
           username,
           metadataURI,
-          sponsorRouter: contracts.SponsorRouter,
+          sponsorRouter: (await getSponsorshipConfig()).sponsorRouter,
         }),
       },
       session.owner,

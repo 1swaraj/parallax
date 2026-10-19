@@ -8,13 +8,14 @@
   },
   "scripts": {
     "test": "vitest run --exclude 'test/**/*.e2e.test.ts'",
-    "test:e2e": "vitest run test/flow.e2e.test.ts",
+    "test:e2e": "vitest run test/*.e2e.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
     "viem": "^2.40.0"
   },
   "devDependencies": {
+    "@types/node": "^22.20.5",
     "typescript": "~5.9.3",
     "viem": "^2.40.0",
     "vitest": "^4.0.0"

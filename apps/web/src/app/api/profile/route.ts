@@ -1,6 +1,6 @@
+import { getSponsorshipConfig } from '@/lib/server/sponsorship-config';
 import { EMPTY_SOURCE_STAMP, sponsorRouterAbi } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
-import { runtimeContracts as contracts } from '@/lib/server/contracts';
 import { sendAsRelayer } from '@/lib/server/chain';
 import { maxGasPerTransaction } from '@/lib/server/env';
 import { assertSameOrigin, assertSponsorshipAvailable, handle } from '@/lib/server/guard';
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     const account = await sponsoredAccount(await getSession());
     const { hash, blockNumber } = await sendAsRelayer(
       {
-        address: contracts.SponsorRouter,
+        address: (await getSponsorshipConfig()).sponsorRouter,
         abi: sponsorRouterAbi,
         functionName: 'setMetadataURI',
         args: [account, metadataURI, EMPTY_SOURCE_STAMP],

@@ -151,6 +151,17 @@ const SCHEMA = `
 
 const migrations = new WeakMap<Sql, Promise<void>>();
 
+/** Read-only migration check for health and doctor; a missing schema must not look ready. */
+export async function migrationsApplied(sql: Sql): Promise<boolean> {
+  const [row] = await sql`
+    SELECT to_regclass('lens_web.relayer_nonces') IS NOT NULL
+       AND to_regclass('lens_web.rate_limit_hits') IS NOT NULL
+       AND to_regclass('lens_web.sponsored_gas') IS NOT NULL
+       AND to_regclass('lens_web.likes') IS NOT NULL AS applied
+  `;
+  return row?.applied === true;
+}
+
 /**
  * Creates the tables on first use, once per process. Instances can start together, and concurrent CREATE ... IF NOT
  * EXISTS can still collide, so they take a lock first.
