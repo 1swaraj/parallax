@@ -527,8 +527,13 @@ and Postgres on Railway; both modes use the same Vercel settings.
    restart on failure, watch paths) and the variables of `apps/indexer/.env.example`, `DATABASE_URL` as a reference
    to the database's (`${{Postgres.DATABASE_URL}}`) and `PORT=42069`. Railway no longer reads `railway.json` for new
    services, so set them on the service (Settings, or its GraphQL API's `serviceInstanceUpdate`). Give the indexer a
-   public domain on port 42069: it's the app's `INDEXER_URL`. For the app's `DATABASE_URL`, add a TCP proxy to the
-   database and use its endpoint with `?sslmode=require`. The app keeps its own tables (relayer nonces, rate limits, the gas budget, and likes, which are
+   public domain on port 42069: it's the app's `INDEXER_URL`. For the app's `DATABASE_URL`, put PgBouncer in front of the
+   database (`railway postgres pgbouncer add --service Postgres --pool-mode transaction`, then `configure
+--default-pool-size 25`) and use its `DATABASE_PUBLIC_URL` with `?sslmode=require`. Every serverless instance holds
+   its own pool, so connecting them straight to Postgres runs out of its 100 connections once a dozen instances are
+   busy ("sorry, too many clients already"), the indexer taking 30 more, 60 while Railway overlaps two deployments.
+   The app is safe behind transaction pooling: no prepared statements, and its locks and `SET LOCAL`s last a
+   transaction. The indexer keeps its direct connection. The app keeps its own tables (relayer nonces, rate limits, the gas budget, and likes, which are
    Parallax's own and off-chain) in the `lens_web` schema of the same database.
 4. **Images.** `RPC_URL=… DEPLOYER_PRIVATE_KEY=… pnpm deploy:media-store` deploys `MediaStore` (any funded key: it
    isn't owned), then add the chain and the block it prints to `MEDIA_STORE_DEPLOYMENTS` in
@@ -550,51 +555,51 @@ and Postgres on Railway; both modes use the same Vercel settings.
 | Functions region | The Railway Postgres's (`iad1` for `us-east4`): an action makes ~15 database round trips       |
 | Fluid compute    | On (the default). The sponsored routes set `maxDuration = 60`                                  |
 
-| Variable                                    | Where                              | What                                                                                                                      |
-| ------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_CHAIN_ID`                      | Vercel                             | `10143` (testnet) or `143`. Read at build time                                                                            |
-| `NEXT_PUBLIC_RPC_URL`                       | Vercel                             | The RPC browsers use. Public: no unrestricted API key                                                                     |
-| `NEXT_PUBLIC_APP_URL`                       | Vercel, Production only            | Runtime public app URL (or `APP_URL`); sign-in messages must name its host                                                |
-| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`      | Vercel                             | Runtime Reown project ID override; optional. Allowlist the app's domains in Reown                                         |
-| `NEXT_PUBLIC_PASSKEYS`                      | Vercel                             | `false` hides the passkey sign-in (Passkeys, above). On by default. Read at build time                                    |
-| `RPC_URL`                                   | Vercel, sensitive                  | The server's RPC, e.g. a paid one. The public testnet RPC rate-limits per IP, which Vercel shares                         |
-| `INDEXER_URL`                               | Vercel (runtime override)          | Runtime indexer URL; `/indexer` streams from the current config                                                           |
-| `RELAYER_PRIVATE_KEYS`                      | Vercel, sensitive, Production only | Override for encrypted relayer keys (`RELAYER_PRIVATE_KEY` for one); panel changes need no restart                        |
-| `SESSION_SECRET`                            | Vercel, sensitive                  | 32+ random characters (`openssl rand -hex 32`)                                                                            |
-| `DATABASE_URL`                              | Vercel, sensitive                  | Railway Postgres's `DATABASE_PUBLIC_URL` + `?sslmode=require`. Required: without it, sponsoring answers 503               |
-| `DATABASE_POOL_SIZE`                        | Vercel                             | Connections per instance (5), and 1 per relayer. Instances × (size + relayers) must fit `max_connections` (Railway: 100)  |
-| `SPONSOR_GAS_BUDGET_PER_HOUR`               | Vercel                             | Gas all relayers may spend per hour, e.g. `500000000` (~51 MON at 102 gwei). Required: without it, sponsoring answers 503 |
-| `SPONSOR_MAX_GAS_PER_TX`                    | Vercel                             | Highest gas limit one sponsored action may have (1500000). Over it: 400, the user can pay instead                         |
-| `SPONSOR_MAX_GAS_PER_SIGNUP`                | Vercel                             | The same for a sponsored sign-up (3000000)                                                                                |
-| `SPONSOR_MAX_GAS_PER_IMAGE_POST`            | Vercel                             | The same for a post with an image (2500000), whose metadata is bigger                                                     |
-| `SPONSOR_MAX_GAS_PER_MEDIA_CHUNK`           | Vercel                             | The same for a 64 KB chunk of an image (3200000)                                                                          |
-| `SPONSOR_MEDIA_CHUNKS_PER_DAY`              | Vercel                             | Sponsored image chunks per Account per 24 hours (20: 10 to 20 images)                                                     |
-| `DISPLAY_FONT_URL`                          | Vercel, build                      | URL of the titles' font file, which isn't in this repo; the build downloads it. Unset: titles use Inter                   |
-| `RELAY_PAUSED`                              | Vercel                             | `true` turns sponsored actions off (503). Admin toggle applies within 10 seconds                                          |
-| `RELAY_RATE_LIMIT_PER_MINUTE`               | Vercel                             | Sponsored actions per Account per minute (30)                                                                             |
-| `SIGNUP_RATE_LIMIT_PER_HOUR`                | Vercel                             | Sign-ups per owner per hour (3)                                                                                           |
-| `SIGNUP_RATE_LIMIT_PER_IP_PER_HOUR`         | Vercel                             | Sign-ups per IP (IPv6: per /64) per hour (10)                                                                             |
-| `SPONSOR_SIGNUPS_PER_HOUR`                  | Vercel                             | Sign-ups in all per hour (200)                                                                                            |
-| `LIKE_RATE_LIMIT_PER_MINUTE`                | Vercel                             | Likes and unlikes per Account per minute (60)                                                                             |
-| `RELAYER_MIN_BALANCE_MON`                   | Vercel                             | `/api/health` turns 503 when a relayer has less MON (5)                                                                   |
-| `INDEXER_MAX_LAG_BLOCKS`                    | Vercel                             | ... or when the indexer is more blocks behind (50)                                                                        |
-| `NEXT_PUBLIC_EXPLORER_URL`                  | Vercel                             | Runtime explorer URL override; defaults to the chain's explorer                                                           |
-| `APP_URL`                                   | Vercel                             | Runtime public URL override; takes precedence over `NEXT_PUBLIC_APP_URL`                                                  |
-| `SPONSOR_ROUTER_ADDRESS`                    | Vercel                             | Runtime SponsorRouter override; defaults to the address book                                                              |
-| `APP_NAME`, `APP_TAGLINE`                   | Vercel                             | Runtime brand overrides; defaults: Parallax / Your followers come with you.                                               |
-| `APP_LOGO_URL`, `APP_ICON_URL`              | Vercel                             | Runtime public branding image URL overrides                                                                               |
-| `APP_ACCENT_COLOR`, `APP_ACCENT_COLOR_DARK` | Vercel                             | Runtime six-digit hex accent colors for light/dark                                                                        |
-| `APP_DEFAULT_THEME`                         | Vercel                             | Runtime default: `light`, `dark` or `system`; user preference wins                                                        |
-| `INSTANCE_SECRET`                           | Vercel, sensitive                  | 32+ random characters; encrypts stored secrets, enables setup and backs up SESSION_SECRET when absent                     |
-| `SETUP_TOKEN`                               | Vercel, sensitive                  | First-boot owner claim token; unset: one random token is printed to server logs                                           |
-| `RESEND_API_KEY`                            | Vercel, sensitive                  | Optional override for the encrypted Resend API key                                                                        |
-| `RESEND_FROM_ADDRESS`, `RESEND_DOMAIN`      | Vercel                             | Runtime email sender and verified domain overrides                                                                        |
-| `USER_EMAIL_ENABLED`                        | Vercel                             | Runtime override for optional user digests (`false` by default)                                                           |
-| `CRON_SECRET`                               | Vercel, sensitive                  | Bearer token protecting the operator alerts and digest cron                                                               |
-| `CAPTCHA_SECRET`                            | Vercel, sensitive                  | Optional override for the encrypted Cloudflare Turnstile secret; checked by the sign-up API                               |
-| `HEALTH_TOKEN`                              | Vercel, sensitive                  | Bearer token that shows `/api/health` details; signed-in admins can also see them                                         |
-| `PONDER_*`, `DATABASE_URL`                  | Railway (indexer)                  | See `apps/indexer/.env.example`                                                                                           |
-| `MEDIA_BLOCKLIST`                           | Railway (indexer)                  | Image ids `/media` refuses (451), comma-separated: takedowns. The bytes stay on-chain; the app stops serving them         |
+| Variable                                    | Where                              | What                                                                                                                          |
+| ------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_CHAIN_ID`                      | Vercel                             | `10143` (testnet) or `143`. Read at build time                                                                                |
+| `NEXT_PUBLIC_RPC_URL`                       | Vercel                             | The RPC browsers use. Public: no unrestricted API key                                                                         |
+| `NEXT_PUBLIC_APP_URL`                       | Vercel, Production only            | Runtime public app URL (or `APP_URL`); sign-in messages must name its host                                                    |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`      | Vercel                             | Runtime Reown project ID override; optional. Allowlist the app's domains in Reown                                             |
+| `NEXT_PUBLIC_PASSKEYS`                      | Vercel                             | `false` hides the passkey sign-in (Passkeys, above). On by default. Read at build time                                        |
+| `RPC_URL`                                   | Vercel, sensitive                  | The server's RPC, e.g. a paid one. The public testnet RPC rate-limits per IP, which Vercel shares                             |
+| `INDEXER_URL`                               | Vercel (runtime override)          | Runtime indexer URL; `/indexer` streams from the current config                                                               |
+| `RELAYER_PRIVATE_KEYS`                      | Vercel, sensitive, Production only | Override for encrypted relayer keys (`RELAYER_PRIVATE_KEY` for one); panel changes need no restart                            |
+| `SESSION_SECRET`                            | Vercel, sensitive                  | 32+ random characters (`openssl rand -hex 32`)                                                                                |
+| `DATABASE_URL`                              | Vercel, sensitive                  | Railway PgBouncer's `DATABASE_PUBLIC_URL` + `?sslmode=require` (Railway, above). Required: without it, sponsoring answers 503 |
+| `DATABASE_POOL_SIZE`                        | Vercel                             | Connections per instance (5), and 1 per relayer. Instances × (size + relayers) must fit `max_connections` (Railway: 100)      |
+| `SPONSOR_GAS_BUDGET_PER_HOUR`               | Vercel                             | Gas all relayers may spend per hour, e.g. `500000000` (~51 MON at 102 gwei). Required: without it, sponsoring answers 503     |
+| `SPONSOR_MAX_GAS_PER_TX`                    | Vercel                             | Highest gas limit one sponsored action may have (1500000). Over it: 400, the user can pay instead                             |
+| `SPONSOR_MAX_GAS_PER_SIGNUP`                | Vercel                             | The same for a sponsored sign-up (3000000)                                                                                    |
+| `SPONSOR_MAX_GAS_PER_IMAGE_POST`            | Vercel                             | The same for a post with an image (2500000), whose metadata is bigger                                                         |
+| `SPONSOR_MAX_GAS_PER_MEDIA_CHUNK`           | Vercel                             | The same for a 64 KB chunk of an image (3200000)                                                                              |
+| `SPONSOR_MEDIA_CHUNKS_PER_DAY`              | Vercel                             | Sponsored image chunks per Account per 24 hours (20: 10 to 20 images)                                                         |
+| `DISPLAY_FONT_URL`                          | Vercel, build                      | URL of the titles' font file, which isn't in this repo; the build downloads it. Unset: titles use Inter                       |
+| `RELAY_PAUSED`                              | Vercel                             | `true` turns sponsored actions off (503). Admin toggle applies within 10 seconds                                              |
+| `RELAY_RATE_LIMIT_PER_MINUTE`               | Vercel                             | Sponsored actions per Account per minute (30)                                                                                 |
+| `SIGNUP_RATE_LIMIT_PER_HOUR`                | Vercel                             | Sign-ups per owner per hour (3)                                                                                               |
+| `SIGNUP_RATE_LIMIT_PER_IP_PER_HOUR`         | Vercel                             | Sign-ups per IP (IPv6: per /64) per hour (10)                                                                                 |
+| `SPONSOR_SIGNUPS_PER_HOUR`                  | Vercel                             | Sign-ups in all per hour (200)                                                                                                |
+| `LIKE_RATE_LIMIT_PER_MINUTE`                | Vercel                             | Likes and unlikes per Account per minute (60)                                                                                 |
+| `RELAYER_MIN_BALANCE_MON`                   | Vercel                             | `/api/health` turns 503 when a relayer has less MON (5)                                                                       |
+| `INDEXER_MAX_LAG_BLOCKS`                    | Vercel                             | ... or when the indexer is more blocks behind (50)                                                                            |
+| `NEXT_PUBLIC_EXPLORER_URL`                  | Vercel                             | Runtime explorer URL override; defaults to the chain's explorer                                                               |
+| `APP_URL`                                   | Vercel                             | Runtime public URL override; takes precedence over `NEXT_PUBLIC_APP_URL`                                                      |
+| `SPONSOR_ROUTER_ADDRESS`                    | Vercel                             | Runtime SponsorRouter override; defaults to the address book                                                                  |
+| `APP_NAME`, `APP_TAGLINE`                   | Vercel                             | Runtime brand overrides; defaults: Parallax / Your followers come with you.                                                   |
+| `APP_LOGO_URL`, `APP_ICON_URL`              | Vercel                             | Runtime public branding image URL overrides                                                                                   |
+| `APP_ACCENT_COLOR`, `APP_ACCENT_COLOR_DARK` | Vercel                             | Runtime six-digit hex accent colors for light/dark                                                                            |
+| `APP_DEFAULT_THEME`                         | Vercel                             | Runtime default: `light`, `dark` or `system`; user preference wins                                                            |
+| `INSTANCE_SECRET`                           | Vercel, sensitive                  | 32+ random characters; encrypts stored secrets, enables setup and backs up SESSION_SECRET when absent                         |
+| `SETUP_TOKEN`                               | Vercel, sensitive                  | First-boot owner claim token; unset: one random token is printed to server logs                                               |
+| `RESEND_API_KEY`                            | Vercel, sensitive                  | Optional override for the encrypted Resend API key                                                                            |
+| `RESEND_FROM_ADDRESS`, `RESEND_DOMAIN`      | Vercel                             | Runtime email sender and verified domain overrides                                                                            |
+| `USER_EMAIL_ENABLED`                        | Vercel                             | Runtime override for optional user digests (`false` by default)                                                               |
+| `CRON_SECRET`                               | Vercel, sensitive                  | Bearer token protecting the operator alerts and digest cron                                                                   |
+| `CAPTCHA_SECRET`                            | Vercel, sensitive                  | Optional override for the encrypted Cloudflare Turnstile secret; checked by the sign-up API                                   |
+| `HEALTH_TOKEN`                              | Vercel, sensitive                  | Bearer token that shows `/api/health` details; signed-in admins can also see them                                             |
+| `PONDER_*`, `DATABASE_URL`                  | Railway (indexer)                  | See `apps/indexer/.env.example`                                                                                               |
+| `MEDIA_BLOCKLIST`                           | Railway (indexer)                  | Image ids `/media` refuses (451), comma-separated: takedowns. The bytes stay on-chain; the app stops serving them             |
 
 Scope the relayer keys and `DATABASE_URL` to Production. A preview deployment runs a branch's code: give previews
 their own relayer and database, or none.
