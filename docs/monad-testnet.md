@@ -66,6 +66,18 @@ cast send <SponsorRouter address from 10143.json> 'setRelayer(address,bool)' <ne
 Parallax does not need the deployment keys, migration tooling, a separate Lens API, or a separate media service
 for this text/data-URI MVP. This PR does not deploy its web app, indexer or database.
 
+## Post images
+
+Parallax's `MediaStore` (see Images in the README) is deployed on testnet at
+`0xf05e400a8a96C40C61f011504394365A1d98FE87`, block 72,383,356, and listed in `MEDIA_STORE_DEPLOYMENTS`. Until the
+owner lets relayers pay for it, images are paid from the author's wallet:
+
+```sh
+cast send 0xE7da6c231A7fE4fCBDd9915e244AE08D75C51009 'setFunction(address,bytes4,bool)' \
+  0xf05e400a8a96C40C61f011504394365A1d98FE87 0x37e2a8ef true \
+  --rpc-url https://testnet-rpc.monad.xyz --account <owner-keystore>
+```
+
 ## Source provenance and future explorer verification
 
 The deployed source is protocol PR #4 at `02da644aebe224a3614fab2cdb4e1162c9d4a9c0`, with only the two

@@ -124,7 +124,7 @@ describe('passkey accounts', () => {
       name: 'UserRejectedRequestError',
     });
     await expect(page(fakeAuthenticator({ prf: false })).create()).rejects.toThrow(
-      /password manager doesn't support it/
+      /saved somewhere that can't hold an account/
     );
   });
 });

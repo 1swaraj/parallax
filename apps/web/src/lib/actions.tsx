@@ -9,11 +9,13 @@ import {
   directExecution,
   feedAbi,
   lensFactoryAbi,
+  mediaId,
+  putMedia,
   SPONSOR_ROUTER_PERMISSIONS,
   toDataURI,
   type AccountCall,
 } from '@lens-monad/protocol';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback, useSyncExternalStore } from 'react';
 import {
   encodeFunctionData,
@@ -24,8 +26,13 @@ import {
   type Log,
 } from 'viem';
 import { useConfig, useConnection } from 'wagmi';
-import { sendTransaction, switchChain, waitForTransactionReceipt } from 'wagmi/actions';
-import { CHAIN_ID, contracts } from './config';
+import {
+  getBytecode,
+  sendTransaction,
+  switchChain,
+  waitForTransactionReceipt,
+} from 'wagmi/actions';
+import { CHAIN_ID, contracts, mediaStore } from './config';
 import { useProfile, waitForIndexer } from './indexer';
 import { api, useSession } from './session';
 
@@ -57,6 +64,25 @@ export function useGasMode(): [GasMode, (mode: GasMode) => void] {
   return [mode, setMode];
 }
 
+const SPONSORSHIP_QUERY = {
+  queryKey: ['sponsorship'],
+  queryFn: async () => (await api<{ available: boolean }>('/api/sponsorship')).available,
+  staleTime: 60_000,
+};
+
+/**
+ * Whether the app pays network fees right now (e.g. not on a network where it has no relayers). Undefined while
+ * loading: actions wait for it, and the UI assumes it does.
+ */
+export function useSponsorship() {
+  return useQuery(SPONSORSHIP_QUERY).data;
+}
+
+/** Whether the app pays network fees right now, asking the server if it hasn't yet. */
+function sponsorshipAvailable(queryClient: QueryClient) {
+  return queryClient.fetchQuery(SPONSORSHIP_QUERY).catch(() => false);
+}
+
 export type Profile = { name?: string; bio?: string; picture?: string };
 
 /** What an action did: its block (to wait for the indexer), and the post it created, if any. */
@@ -81,9 +107,12 @@ export function useLensActions() {
   const { chainId, address } = useConnection();
   const { owner, account, setAccount } = useSession();
   const [gasMode] = useGasMode();
+  const available = useSponsorship();
   const { data: profile } = useProfile(account, null);
-  // Accounts created elsewhere may not have the SponsorRouter as manager: their owner pays.
-  const sponsored = gasMode === 'sponsored' && (profile?.account.sponsored ?? true);
+  // The app pays unless the user chose their wallet (Settings), the app can't pay right now, or the Account was
+  // created elsewhere without the SponsorRouter as manager.
+  const sponsored =
+    gasMode === 'sponsored' && available !== false && (profile?.account.sponsored ?? true);
 
   const sendFromWallet = useCallback(
     async (to: Address, data: Hex) => {
@@ -117,6 +146,18 @@ export function useLensActions() {
     return { blockNumber: BigInt(result.blockNumber), postId: result.postId ?? null };
   }, []);
 
+  /** Sends a call for the Account, sponsored or from the wallet, and waits for its receipt (not the indexer). */
+  const send = useCallback(
+    async (account: Address, call: AccountCall): Promise<ActionResult> =>
+      sponsored
+        ? relay('/api/relay', call)
+        : sendFromWallet(account, directExecution(call)).then((receipt) => ({
+            blockNumber: receipt.blockNumber,
+            postId: postIdIn(receipt.logs),
+          })),
+    [sponsored, relay, sendFromWallet]
+  );
+
   const run = useCallback(
     async (call: AccountCall | ((account: Address) => AccountCall)): Promise<ActionResult> => {
       if (!account) {
@@ -124,19 +165,57 @@ export function useLensActions() {
       }
       const resolved = typeof call === 'function' ? call(account) : call;
       try {
-        const result = sponsored
-          ? await relay('/api/relay', resolved)
-          : await sendFromWallet(account, directExecution(resolved)).then((receipt) => ({
-              blockNumber: receipt.blockNumber,
-              postId: postIdIn(receipt.logs),
-            }));
+        const result = await send(account, resolved);
         await waitForIndexer(queryClient, result.blockNumber);
         return result;
       } catch (error) {
         throw new Error(describeLensError(error));
       }
     },
-    [account, sponsored, relay, sendFromWallet, queryClient]
+    [account, send, queryClient]
+  );
+
+  /**
+   * Stores an image on-chain as the Account's media, one transaction per chunk (one wallet prompt each when the
+   * wallet pays), and returns its id once the app serves it, so a post never shows an image that isn't there. An
+   * image the indexer already has, e.g. from a post that failed after its upload, isn't sent again.
+   */
+  const uploadMedia = useCallback(
+    async (bytes: Uint8Array, onProgress?: (sent: number, total: number) => void) => {
+      if (!account) {
+        throw new Error('Sign in with a Lens account first');
+      }
+      if (!mediaStore) {
+        throw new Error("Images aren't available on this network yet");
+      }
+      const id = await mediaId(bytes);
+      const served = async () => (await fetch(`/media/${account}/${id}`, { method: 'HEAD' })).ok;
+      if (await served()) {
+        return { author: account, id };
+      }
+      // A call to an address without code succeeds and does nothing: the fees would be paid for an image no one
+      // can read.
+      if (!(await getBytecode(config, { address: mediaStore.address, chainId: CHAIN_ID }))) {
+        throw new Error("Images aren't available on this network yet");
+      }
+      const calls = putMedia(mediaStore.address, id, bytes);
+      let blockNumber = 0n;
+      try {
+        for (const [i, call] of calls.entries()) {
+          onProgress?.(i, calls.length);
+          ({ blockNumber } = await send(account, call));
+        }
+      } catch (error) {
+        throw new Error(describeLensError(error));
+      }
+      onProgress?.(calls.length, calls.length);
+      await waitForIndexer(queryClient, blockNumber);
+      if (!(await served())) {
+        throw new Error("The image was sent but can't be read back. Try posting it again.");
+      }
+      return { author: account, id };
+    },
+    [account, send, config, queryClient]
   );
 
   const signUp = useCallback(
@@ -145,7 +224,7 @@ export function useLensActions() {
         throw new Error('Sign in first');
       }
       try {
-        if (gasMode === 'sponsored') {
+        if (gasMode === 'sponsored' && (await sponsorshipAvailable(queryClient))) {
           const result = await api<{ account: Address; blockNumber: string }>('/api/signup', {
             method: 'POST',
             body: params,
@@ -244,5 +323,5 @@ export function useLensActions() {
     }
   }, [account, sendFromWallet, queryClient]);
 
-  return { run, signUp, updateProfile, enableSponsorship, sponsored, account };
+  return { run, uploadMedia, signUp, updateProfile, enableSponsorship, sponsored, account };
 }

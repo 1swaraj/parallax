@@ -1,7 +1,7 @@
 import { describeLensError, lensErrorName } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
 import { APP_NAME } from '../brand';
-import { appUrl, booleanEnv, missingSponsorSettings } from './env';
+import { appUrl, booleanEnv, missingSponsorSettings, relayerKeys } from './env';
 
 export class HttpError extends Error {
   constructor(
@@ -33,6 +33,22 @@ export function assertSameOrigin(request: Request) {
 /** RELAY_PAUSED=true stops every action the relayers pay for. Users can still pay from their wallet. */
 export function isPaused() {
   return booleanEnv('RELAY_PAUSED');
+}
+
+/**
+ * Whether the relayers can pay right now: not paused, set up to bound their spending, and with keys. The client asks
+ * (/api/sponsorship) to send actions from the user's wallet when they can't, rather than have them refused.
+ */
+export function isSponsorshipAvailable() {
+  if (isPaused() || missingSponsorSettings().length > 0) {
+    return false;
+  }
+  try {
+    relayerKeys();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Refuses actions the relayers would pay for while paused, or while the settings that bound their spending lack. */

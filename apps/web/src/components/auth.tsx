@@ -4,7 +4,7 @@ import { usernameError } from '@lens-monad/protocol';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useConnect, useConnection, useConnectors, useDisconnect } from 'wagmi';
-import { useGasMode, useLensActions } from '@/lib/actions';
+import { useGasMode, useLensActions, useSponsorship } from '@/lib/actions';
 import { APP_NAME } from '@/lib/brand';
 import { MAX_BIO_CHARACTERS, MAX_NAME_CHARACTERS } from '@/lib/config';
 import { useProfile } from '@/lib/indexer';
@@ -13,7 +13,7 @@ import { useSession } from '@/lib/session';
 import { atHandle, Avatar, displayName } from './account';
 import { Icon, type IconName } from './icons';
 import { useToast } from './toast';
-import { Button, CornerBrackets, Dropdown, Spinner } from './ui';
+import { Button, Dropdown, Spinner } from './ui';
 
 function useDebounced<T>(value: T, delay = 300) {
   const [debounced, setDebounced] = useState(value);
@@ -114,7 +114,9 @@ export function Field({
 export function CreateAccountForm({ onCreated }: { onCreated?: () => void }) {
   const toast = useToast();
   const { signUp } = useLensActions();
-  const [gasMode, setGasMode] = useGasMode();
+  const [gasMode] = useGasMode();
+  const available = useSponsorship();
+  const free = gasMode === 'sponsored' && available !== false;
   const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');
@@ -168,30 +170,9 @@ export function CreateAccountForm({ onCreated }: { onCreated?: () => void }) {
         maxLength={MAX_BIO_CHARACTERS}
         multiline
       />
-      <fieldset disabled={create.isPending} className="flex flex-col gap-2 text-sm">
-        <legend className="mb-2 text-text-secondary">Who pays network fees?</legend>
-        <label className="flex items-center gap-2">
-          <input
-            type="radio"
-            name="signup-gas-mode"
-            checked={gasMode === 'sponsored'}
-            onChange={() => setGasMode('sponsored')}
-          />
-          {APP_NAME} pays (when available)
-        </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="radio"
-            name="signup-gas-mode"
-            checked={gasMode === 'direct'}
-            onChange={() => setGasMode('direct')}
-          />
-          Pay from my wallet (MON)
-        </label>
-      </fieldset>
       <div className="flex items-center justify-between gap-4">
         <p className="text-xs text-text-tertiary">
-          {gasMode === 'sponsored'
+          {free
             ? `Free: ${APP_NAME} pays the network fee.`
             : 'Your wallet pays the network fee, in MON.'}
         </p>
@@ -283,20 +264,91 @@ export function connectorName(connector: { name: string }) {
   return connector.name === 'Injected' ? 'Browser wallet' : connector.name;
 }
 
-/** A sign-in button's label. A passkey connector's name already says what it does. */
-export function connectorAction(connector: { name: string; type: string }) {
-  return connector.type === PASSKEY ? connector.name : `Continue with ${connectorName(connector)}`;
-}
-
 export function connectorIcon(connector: { type: string }): IconName {
   return connector.type === PASSKEY ? 'key' : 'wallet';
+}
+
+/**
+ * The ways in, passkeys first: creating an account with one is the main action, signing in with one comes next, and
+ * wallets are a step away. Without passkeys (NEXT_PUBLIC_PASSKEYS=false, or no WebAuthn), the wallets show at once.
+ * `onConnected` runs once a connector connects; the sign-in flow takes over from there.
+ */
+export function SignInOptions({ onConnected }: { onConnected?: () => void }) {
+  const connectors = useConnectors();
+  const { mutate: connect, isPending, variables } = useConnect();
+  const available = useSponsorship();
+  const toast = useToast();
+  const [showWallets, setShowWallets] = useState(false);
+  const create = connectors.find((connector) => connector.id === NEW_PASSKEY);
+  const passkey = connectors.find((connector) => connector.id === PASSKEY);
+  const wallets = connectors.filter((connector) => connector.type !== PASSKEY);
+
+  const button = (
+    connector: (typeof connectors)[number],
+    variant: 'primary' | 'secondary',
+    label: string
+  ) => (
+    <Button
+      key={connector.uid}
+      variant={variant}
+      disabled={isPending}
+      onClick={() =>
+        connect({ connector }, { onSuccess: onConnected, onError: connectErrorToast(toast) })
+      }
+    >
+      <Icon name={connectorIcon(connector)} size={16} />
+      {isPending && variables?.connector === connector ? 'Connecting…' : label}
+    </Button>
+  );
+
+  return (
+    <div className="flex w-full flex-col gap-3">
+      {create && passkey ? (
+        <>
+          {button(create, 'primary', 'Create an account')}
+          {button(passkey, 'secondary', 'Sign in with a passkey')}
+          <p className="text-xs text-text-tertiary">
+            Your passkey is your account: Face ID, Touch ID or your password manager. No wallet, no
+            seed phrase.
+          </p>
+          {wallets.length > 0 &&
+            (showWallets ? (
+              <div className="mt-2 flex flex-col gap-3 border-t border-border-default pt-5">
+                {wallets.map((wallet) =>
+                  button(wallet, 'secondary', `Continue with ${connectorName(wallet)}`)
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowWallets(true)}
+                className="focus-ring mt-1 self-start rounded-sm text-sm text-text-secondary underline-offset-4 hover:text-text-primary hover:underline"
+              >
+                Use a wallet instead
+              </button>
+            ))}
+        </>
+      ) : (
+        wallets.map((wallet, index) =>
+          button(
+            wallet,
+            index === 0 ? 'primary' : 'secondary',
+            `Continue with ${connectorName(wallet)}`
+          )
+        )
+      )}
+      {available !== false && (
+        <p className="mt-2 text-xs text-text-tertiary">
+          Joining and posting are free: {APP_NAME} pays the network fees.
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** Connect a wallet, sign in (SIWE, one free signature), create an account if the wallet has none. */
 export function AuthFlow({ onDone }: { onDone: () => void }) {
   const { isConnected, address } = useConnection();
-  const connectors = useConnectors();
-  const { mutate: connect, isPending: connecting, variables } = useConnect();
   const { mutate: disconnect } = useDisconnect();
   const { owner, account, needsSignIn, signIn } = useSession();
   const toast = useToast();
@@ -325,34 +377,9 @@ export function AuthFlow({ onDone }: { onDone: () => void }) {
         <>
           <StepTitle
             title={`Join ${APP_NAME}`}
-            subtitle="Connect a wallet to start. Joining is free, and your username and followers work in any Lens app."
+            subtitle="Your username and followers work in any Lens app."
           />
-          <div className="flex flex-col gap-3">
-            {connectors.map((connector) => (
-              <button
-                key={connector.uid}
-                type="button"
-                disabled={connecting}
-                onClick={() => connect({ connector }, { onError: connectErrorToast(toast) })}
-                className="group/card focus-ring relative flex h-14 items-center gap-3 rounded-sm border border-border-default bg-bg-elevated px-4 text-left transition-colors duration-150 hover:border-border-hover disabled:opacity-50"
-              >
-                <span className="hidden group-hover/card:contents">
-                  <CornerBrackets size={8} />
-                </span>
-                <Icon name={connectorIcon(connector)} size={20} className="text-text-secondary" />
-                <span className="flex-1 text-sm font-medium text-text-primary">
-                  {connectorName(connector)}
-                </span>
-                {connecting && variables?.connector === connector && (
-                  <span className="mono-caps text-[11px] text-text-tertiary">Connecting</span>
-                )}
-              </button>
-            ))}
-          </div>
-          <p className="mt-6 text-xs text-text-tertiary">
-            Joining and posting are free: {APP_NAME} pays the network fees. You can pay from your
-            own wallet instead in Settings.
-          </p>
+          <SignInOptions />
         </>
       ) : needsSignIn ? (
         <>

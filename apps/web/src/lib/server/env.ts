@@ -115,6 +115,18 @@ export function maxGasPerSignUp(): bigint {
   return gasEnv('SPONSOR_MAX_GAS_PER_SIGNUP') ?? 3_000_000n;
 }
 
+// Measured: a 64 KiB chunk of an image uses 2.64M gas, mostly calldata at 40 gas per byte (EIP-7623's floor); a post
+// with an image ~1.2M with a short text, its metadata being bigger, and up to ~2M with a full text and description.
+/** The highest gas limit the relayer sends a chunk of an image with (MediaStore.put). */
+export function maxGasPerMediaChunk(): bigint {
+  return gasEnv('SPONSOR_MAX_GAS_PER_MEDIA_CHUNK') ?? 3_200_000n;
+}
+
+/** The highest gas limit the relayer sends a post with an image with. */
+export function maxGasPerImagePost(): bigint {
+  return gasEnv('SPONSOR_MAX_GAS_PER_IMAGE_POST') ?? 2_500_000n;
+}
+
 /**
  * The settings sponsored actions can't run without outside the local chain: without a database, rate limits, nonces
  * and the budget are per instance; without a budget, the relayers' spending has no ceiling.

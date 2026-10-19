@@ -50,7 +50,7 @@ const storedAccount = () =>
 const setGasMode = (mode) => page.evaluate((m) => localStorage.setItem('lens:gas-mode', m), mode);
 
 const signIn = page.getByRole('button', { name: /sign in with a passkey/i });
-const createPasskey = page.getByRole('button', { name: /create an account with a passkey/i });
+const createPasskey = page.getByRole('button', { name: 'Create an account', exact: true });
 const username = `pk${Date.now().toString(36)}`;
 let account;
 

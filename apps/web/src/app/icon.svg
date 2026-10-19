@@ -1,13 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect width="64" height="64" rx="14" fill="#0e091c"/>
-  <g transform="translate(16 12) scale(0.68)" fill="none" stroke-linejoin="miter" stroke-linecap="butt">
-    <clipPath id="cap"><rect x="-12" y="0" width="70" height="60"/></clipPath>
-    <clipPath id="cap-shifted"><rect x="-12" y="-1.75" width="70" height="63.5"/></clipPath>
-    <mask id="outline" maskUnits="userSpaceOnUse" x="-20" y="-20" width="86" height="100">
-      <path d="M6 66V6H26A14 14 0 0 1 26 34H6" stroke="#fff" stroke-width="15.5" clip-path="url(#cap-shifted)"/>
-      <path d="M6 66V6H26A14 14 0 0 1 26 34H6" stroke="#000" stroke-width="12" clip-path="url(#cap)"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 0 76 76" width="64" height="64">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c5bbff"/>
+      <stop offset="1" stop-color="#5740d6"/>
+    </linearGradient>
+    <mask id="split" maskUnits="userSpaceOnUse" x="0" y="0" width="72" height="76">
+      <rect width="72" height="76" fill="#fff"/>
+      <rect x="22.25" width="27.5" height="76" fill="#000"/>
     </mask>
-    <g transform="translate(5 -5)" mask="url(#outline)"><rect x="-12" y="-20" width="66" height="100" fill="#aaaabf"/></g>
-    <path d="M6 66V6H26A14 14 0 0 1 26 34H6" stroke="#6e54ff" stroke-width="12" clip-path="url(#cap)"/>
+  </defs>
+  <g fill="#fff">
+    <rect width="72" height="76" rx="22.25" mask="url(#split)"/>
+    <circle cx="36" cy="38" r="24.5"/>
   </g>
+  <rect width="72" height="76" rx="22.25" fill="url(#g)" opacity="0.85" mask="url(#split)"/>
+  <circle cx="36" cy="38" r="24.5" fill="url(#g)" opacity="0.55"/>
+  <circle cx="36" cy="38" r="18" fill="url(#g)" opacity="0.7"/>
+  <circle cx="36" cy="38" r="9.25" fill="url(#g)" opacity="0.9"/>
 </svg>

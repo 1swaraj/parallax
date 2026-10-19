@@ -90,7 +90,7 @@ function Sidebar() {
             <Logo size={28} />
           </span>
           <span className="max-xl:hidden">
-            <Wordmark height={20} />
+            <Wordmark height={18} />
           </span>
         </Link>
         <nav aria-label="Primary" className="flex flex-col gap-1">

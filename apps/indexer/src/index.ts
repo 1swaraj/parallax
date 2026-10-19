@@ -1,7 +1,22 @@
-import { getDeployment, readPostContent, readProfile } from '@lens-monad/protocol';
+import {
+  getDeployment,
+  MAX_MEDIA_BYTES,
+  readPostContent,
+  readPostImage,
+  readProfile,
+} from '@lens-monad/protocol';
 import { ponder, type Context } from 'ponder:registry';
-import { account, block, follow, hashtag, notification, post, username } from 'ponder:schema';
-import { isAddressEqual, zeroAddress, type Address } from 'viem';
+import {
+  account,
+  block,
+  follow,
+  hashtag,
+  mediaChunk,
+  notification,
+  post,
+  username,
+} from 'ponder:schema';
+import { hexToBytes, isAddressEqual, zeroAddress, type Address } from 'viem';
 import { hashtagsOf, mentionedUsernames } from './tokens';
 
 const { contracts } = getDeployment(Number(process.env.PONDER_CHAIN_ID ?? 31337));
@@ -243,6 +258,7 @@ ponder.on('Feed:Lens_Feed_PostCreated', async ({ event, context }) => {
     author,
     contentUri: postParams.contentURI,
     content,
+    image: readPostImage(postParams.contentURI),
     rootPostId,
     repliedPostId,
     quotedPostId,
@@ -291,9 +307,12 @@ ponder.on('Feed:Lens_Feed_PostEdited', async ({ event, context }) => {
   const id = event.args.postId;
   if (await context.db.find(post, { id })) {
     const contentUri = event.args.newPostParams.contentURI;
-    await context.db
-      .update(post, { id })
-      .set({ contentUri, content: readPostContent(contentUri), editedAt: event.block.timestamp });
+    await context.db.update(post, { id }).set({
+      contentUri,
+      content: readPostContent(contentUri),
+      image: readPostImage(contentUri),
+      editedAt: event.block.timestamp,
+    });
   }
 });
 
@@ -309,6 +328,22 @@ ponder.on('Feed:Lens_Feed_PostDeleted', async ({ event, context }) => {
   await bumpPost(context, row.repliedPostId, 'replies', -1);
   await bumpPost(context, row.quotedPostId, 'quotes', -1);
   await bumpPost(context, row.repostedPostId, 'reposts', -1);
+});
+
+// Media
+
+// Only the author writes their media, so the first chunk at an offset stands: a retry resends the same bytes. Chunks
+// past MAX_MEDIA_BYTES are dropped, so no one fills the database however much they pay.
+ponder.on('MediaStore:MediaChunk', async ({ event, context }) => {
+  const { author, id, offset, data } = event.args;
+  const bytes = hexToBytes(data);
+  if (bytes.length === 0 || offset + BigInt(bytes.length) > BigInt(MAX_MEDIA_BYTES)) {
+    return;
+  }
+  await context.db
+    .insert(mediaChunk)
+    .values({ author, id, offset: Number(offset), data: bytes })
+    .onConflictDoNothing();
 });
 
 // Follows

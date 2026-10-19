@@ -1,3 +1,4 @@
+import type { PostImage } from '@lens-monad/protocol';
 import { index, onchainEnum, onchainTable, primaryKey } from 'ponder';
 
 /** Lens Accounts created by the AccountFactory, with their profile and username in the global Namespace. */
@@ -44,6 +45,8 @@ export const post = onchainTable(
     contentUri: t.text().notNull(),
     /** The text of inline Lens metadata, null for other URIs and for reposts. */
     content: t.text(),
+    /** The image of inline Lens image metadata, as its metadata describes it. */
+    image: t.json().$type<PostImage>(),
     rootPostId: t.bigint().notNull(),
     repliedPostId: t.bigint(),
     quotedPostId: t.bigint(),
@@ -66,6 +69,23 @@ export const post = onchainTable(
     repliedIndex: index().on(table.repliedPostId, table.blockNumber, table.logIndex),
     /** The viewer's reposts of the posts on a page. */
     repostedIndex: index().on(table.repostedPostId, table.author),
+  })
+);
+
+/**
+ * Chunks of media (post images) MediaStore logged: `data` is the media's bytes from `offset`. The id is the SHA-256
+ * of the whole, which the API checks when it puts the chunks back together.
+ */
+export const mediaChunk = onchainTable(
+  'media_chunk',
+  (t) => ({
+    author: t.hex().notNull(),
+    id: t.hex().notNull(),
+    offset: t.integer().notNull(),
+    data: t.bytes().notNull(),
+  }),
+  (table) => ({
+    pk: primaryKey({ columns: [table.author, table.id, table.offset] }),
   })
 );
 

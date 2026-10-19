@@ -4,7 +4,10 @@ import {
   accountFactoryAbi,
   feedAbi,
   getDeployment,
+  getMediaStore,
   graphAbi,
+  MEDIA_STORE_ADDRESS,
+  mediaStoreAbi,
   namespaceAbi,
 } from '@lens-monad/protocol';
 import { createConfig, factory } from 'ponder';
@@ -91,6 +94,14 @@ export default createConfig({
       abi: accountBlockingRuleAbi,
       address: contracts.AccountBlockingRule,
       startBlock,
+    },
+    // Post images. MediaStore has the same address on every chain; where it isn't deployed yet, there's nothing to
+    // read.
+    MediaStore: {
+      chain: 'monad',
+      abi: mediaStoreAbi,
+      address: MEDIA_STORE_ADDRESS,
+      startBlock: getMediaStore(chainId)?.deploymentBlock ?? startBlock,
     },
   },
 });

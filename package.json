@@ -9,6 +9,8 @@
   "scripts": {
     "chain": "bash scripts/dev-chain.sh",
     "sync:contracts": "node scripts/sync-contracts.mjs",
+    "build:contracts": "node scripts/build-contracts.mjs",
+    "deploy:media-store": "node --import tsx scripts/deploy-media-store.ts",
     "check:testnet": "node --import tsx scripts/check-testnet.ts",
     "indexer": "pnpm --filter @lens-monad/indexer dev",
     "web": "pnpm --filter @lens-monad/web dev",
