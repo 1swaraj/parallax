@@ -5,6 +5,7 @@ import { assertSameOrigin, handle, HttpError } from '@/lib/server/guard';
 import { likeablePostAuthor, parsePostId } from '@/lib/server/posts';
 import { getSession } from '@/lib/server/session';
 import { rateLimit, serverState } from '@/lib/server/state';
+import { assertAccess } from '@/lib/server/moderation';
 
 // Likes are Parallax's own, off-chain (Lens V3 has none): no relayer, no gas, so RELAY_PAUSED doesn't stop them.
 
@@ -41,6 +42,7 @@ async function likeRequest(request: Request) {
   if (!owner || !account) {
     throw new HttpError(401, 'Sign in with a Lens account first');
   }
+  await assertAccess(owner, account);
   const { postId } = (await request.json()) as { postId?: unknown };
   const id = parsePostId(postId);
   await rateLimit(`like:${account}`, numberEnv('LIKE_RATE_LIMIT_PER_MINUTE', 60), 60 * 1000);

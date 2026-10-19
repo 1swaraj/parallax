@@ -4,6 +4,8 @@ import { handle, HttpError } from '@/lib/server/guard';
 import { optionalTime, pageLimit } from '@/lib/server/requests';
 import { getSession } from '@/lib/server/session';
 import { serverState } from '@/lib/server/state';
+import { assertAccess } from '@/lib/server/moderation';
+import { visibleLikes } from '@/lib/server/moderation-likes';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,11 +22,20 @@ export async function GET(request: Request) {
     if (!(await isOwnedBy(account, owner))) {
       throw new HttpError(403, 'Your wallet no longer owns this account, sign in again');
     }
+    await assertAccess(owner, account);
     const params = new URL(request.url).searchParams;
     const received = await serverState().likes.received(account, {
-      limit: pageLimit(params.get('limit'), 50),
+      limit: 100,
       since: optionalTime(params.get('since'), 'since'),
     });
-    return NextResponse.json(received, { headers: { 'cache-control': 'no-store' } });
+    const items = await visibleLikes(received.items);
+    const since = optionalTime(params.get('since'), 'since');
+    return NextResponse.json(
+      {
+        items: items.slice(0, pageLimit(params.get('limit'), 50)),
+        unread: items.filter((item) => !since || new Date(item.likedAt) > since).length,
+      },
+      { headers: { 'cache-control': 'no-store' } }
+    );
   });
 }

@@ -2,6 +2,8 @@ import type { ThreadView } from '@lens-monad/protocol';
 import type { Address } from 'viem';
 import { indexerUrl } from './env';
 import { HttpError } from './guard';
+import { hiddenPost } from './moderation-reads';
+import { moderationSnapshot } from './moderation';
 
 const MAX_UINT256 = 2n ** 256n - 1n;
 
@@ -39,7 +41,7 @@ export async function likeablePostAuthor(postId: string): Promise<Address> {
     throw new HttpError(503, "Couldn't find the post, try again in a moment");
   }
   const { post } = (await response.json()) as ThreadView;
-  if (post.deleted) {
+  if (post.deleted || hiddenPost(post, await moderationSnapshot())) {
     throw new HttpError(404, 'Post not found');
   }
   if (post.repostedPostId) {

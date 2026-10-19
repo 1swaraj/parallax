@@ -233,7 +233,9 @@ export function useLensActions() {
   );
 
   const signUp = useCallback(
-    async (params: { username: string } & Profile) => {
+    async (
+      params: { username: string; inviteCode?: string; turnstileToken?: string } & Profile
+    ) => {
       if (!owner) {
         throw new Error('Sign in first');
       }
@@ -248,6 +250,7 @@ export function useLensActions() {
           return result.account;
         }
         // Direct: the owner sends LensFactory's transaction, and still adds the SponsorRouter for later.
+        await api('/api/signup', { method: 'PUT', body: params });
         const receipt = await sendFromWallet(
           contracts.LensFactory,
           encodeFunctionData({

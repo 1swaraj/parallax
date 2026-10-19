@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { getChain, getDeployment } from '@lens-monad/protocol';
 import { APP_NAME, APP_TAGLINE } from './brand';
 import { CHAIN_ID } from './config';
+import { ModerationPolicy } from './moderation-policy';
 
 const url = z
   .string()
@@ -47,6 +48,7 @@ export const InstanceConfig = z
       .regex(/^$|^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/)
       .default(''),
     userEmailEnabled: z.boolean().default(false),
+    moderation: ModerationPolicy.default({}),
   })
   .strict();
 export type InstanceConfig = z.infer<typeof InstanceConfig>;
@@ -78,6 +80,7 @@ export const CONFIG_ENV = {
   emailFrom: ['RESEND_FROM_ADDRESS'],
   emailDomain: ['RESEND_DOMAIN'],
   userEmailEnabled: ['USER_EMAIL_ENABLED'],
+  moderation: [],
 } as const satisfies Record<keyof InstanceConfig, readonly string[]>;
 
 export function resolveConfig(

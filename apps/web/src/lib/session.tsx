@@ -35,13 +35,14 @@ export function useSession() {
   const { address } = useConnection();
   const { mutateAsync: signMessage } = useSignMessage();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: SESSION_KEY,
     queryFn: () => api<Session>('/api/auth/session'),
-    staleTime: Infinity,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
   });
 
-  const session: Session = data ?? { owner: null, account: null };
+  const session: Session = !isError && data ? data : { owner: null, account: null };
   const otherWallet = !!address && !!session.owner && !isAddressEqual(address, session.owner);
   const owner = otherWallet ? null : session.owner;
   const account = otherWallet ? null : session.account;

@@ -31,6 +31,7 @@ import { Icon, type IconName } from './icons';
 import { useAuthModal, useCompose, useConfirm } from './modals';
 import { useToast } from './toast';
 import { CornerBrackets, Dropdown } from './ui';
+import { ContentWarning, useReport } from './moderation';
 
 /** One action of the bar: icon and mono count. Purple on hover and when active, like every interaction. */
 function ActionButton({
@@ -119,12 +120,12 @@ export function QuotedPost({ post, link = true }: { post: PostView; link?: boole
   if (post.deleted) {
     return (
       <div className="mt-3 rounded-sm bg-bg-subtle px-4 py-3 text-sm text-text-tertiary">
-        This post is unavailable.
+        {post.moderation?.hidden ? 'Hidden by moderators' : 'This post is unavailable.'}
       </div>
     );
   }
   const body = (
-    <>
+    <ContentWarning warning={post.moderation?.warning}>
       <div className="flex min-w-0 items-center gap-2 text-sm">
         <Avatar account={post.author} size={20} />
         <NameLine account={post.author} link={false} />
@@ -137,7 +138,7 @@ export function QuotedPost({ post, link = true }: { post: PostView; link?: boole
         </p>
       )}
       {post.image && <PostImage image={post.image} compact />}
-    </>
+    </ContentWarning>
   );
   const frame = 'mt-3 block rounded-sm border border-border-default bg-bg-elevated px-3 py-3';
   if (!link) {
@@ -265,6 +266,7 @@ function PostActions({ post, large = false }: { post: PostView; large?: boolean 
 
 /** The "…" menu: delete your own post, block others, copy the link. */
 function PostMenu({ post, linkId }: { post: PostView; linkId: string }) {
+  const { openReport, dialog } = useReport('post', post.id);
   const { run, account } = useLensActions();
   const toast = useToast();
   const confirm = useConfirm();
@@ -284,53 +286,57 @@ function PostMenu({ post, linkId }: { post: PostView; linkId: string }) {
   });
 
   return (
-    <Dropdown
-      items={[
-        {
-          label: 'Delete post',
-          icon: 'trash',
-          danger: true,
-          hidden: !isOwn,
-          onSelect: () =>
-            confirm({
-              title: 'Delete post?',
-              body: 'It disappears from your profile, timelines and search. Like everything on Lens, the original stays readable onchain.',
-              action: 'Delete',
-              danger: true,
-              onConfirm: () => remove.mutate(),
-            }),
-        },
-        {
-          label: `Block ${atHandle(post.author)}`,
-          icon: 'block',
-          danger: true,
-          hidden: !account || isOwn,
-          onSelect: () =>
-            confirm({
-              title: `Block ${atHandle(post.author)}?`,
-              body: "They won't be able to follow you or reply to you, and their posts leave your timelines.",
-              action: 'Block',
-              danger: true,
-              onConfirm: () => block.mutate(),
-            }),
-        },
-        { label: 'Copy link', icon: 'link', onSelect: () => copyLink(linkId) },
-      ]}
-      trigger={({ toggle, open }) => (
-        <button
-          type="button"
-          aria-label="More"
-          aria-expanded={open}
-          onClick={(event) => {
-            event.stopPropagation();
-            toggle();
-          }}
-          className="focus-ring -my-1.5 -mr-2 grid h-8 w-8 place-items-center rounded-sm text-text-tertiary transition-colors duration-150 hover:bg-bg-hover hover:text-text-primary"
-        >
-          <Icon name="more" size={18} />
-        </button>
-      )}
-    />
+    <>
+      {dialog}
+      <Dropdown
+        items={[
+          {
+            label: 'Delete post',
+            icon: 'trash',
+            danger: true,
+            hidden: !isOwn,
+            onSelect: () =>
+              confirm({
+                title: 'Delete post?',
+                body: 'It disappears from your profile, timelines and search. Like everything on Lens, the original stays readable onchain.',
+                action: 'Delete',
+                danger: true,
+                onConfirm: () => remove.mutate(),
+              }),
+          },
+          {
+            label: `Block ${atHandle(post.author)}`,
+            icon: 'block',
+            danger: true,
+            hidden: !account || isOwn,
+            onSelect: () =>
+              confirm({
+                title: `Block ${atHandle(post.author)}?`,
+                body: "They won't be able to follow you or reply to you, and their posts leave your timelines.",
+                action: 'Block',
+                danger: true,
+                onConfirm: () => block.mutate(),
+              }),
+          },
+          { label: 'Copy link', icon: 'link', onSelect: () => copyLink(linkId) },
+          { label: 'Report post', icon: 'block', onSelect: openReport },
+        ]}
+        trigger={({ toggle, open }) => (
+          <button
+            type="button"
+            aria-label="More"
+            aria-expanded={open}
+            onClick={(event) => {
+              event.stopPropagation();
+              toggle();
+            }}
+            className="focus-ring -my-1.5 -mr-2 grid h-8 w-8 place-items-center rounded-sm text-text-tertiary transition-colors duration-150 hover:bg-bg-hover hover:text-text-primary"
+          >
+            <Icon name="more" size={18} />
+          </button>
+        )}
+      />
+    </>
   );
 }
 
@@ -356,7 +362,7 @@ export function PostCard({
     return (
       <div className="border-b border-border-default px-4 py-3">
         <div className="rounded-sm bg-bg-subtle px-4 py-3 text-sm text-text-tertiary">
-          This post is unavailable.
+          {shown.moderation?.hidden ? 'Hidden by moderators' : 'This post is unavailable.'}
         </div>
       </div>
     );
@@ -440,17 +446,22 @@ export function PostCard({
               </Link>
             </div>
           )}
-          {shown.content !== null ? (
-            <RichText text={shown.content} className="mt-1 text-base leading-6 text-text-primary" />
-          ) : (
-            !shown.image && (
-              <p className="mt-1 text-sm text-text-tertiary italic">
-                This post's content is stored offchain.
-              </p>
-            )
-          )}
-          {shown.image && <PostImage image={shown.image} />}
-          {shown.quoted && <QuotedPost post={shown.quoted} />}
+          <ContentWarning warning={shown.moderation?.warning}>
+            {shown.content !== null ? (
+              <RichText
+                text={shown.content}
+                className="mt-1 text-base leading-6 text-text-primary"
+              />
+            ) : (
+              !shown.image && (
+                <p className="mt-1 text-sm text-text-tertiary italic">
+                  This post's content is stored offchain.
+                </p>
+              )
+            )}
+            {shown.image && <PostImage image={shown.image} />}
+            {shown.quoted && <QuotedPost post={shown.quoted} />}
+          </ContentWarning>
           <div className="mt-3">
             <PostActions post={shown} />
           </div>
@@ -485,15 +496,19 @@ export function FocusPost({ post, lineAbove }: { post: PostView; lineAbove: bool
         </div>
         <PostMenu post={post} linkId={post.id} />
       </div>
-      {post.content !== null ? (
-        <RichText text={post.content} className="mt-3 text-lg leading-7 text-text-primary" />
-      ) : (
-        !post.image && (
-          <p className="mt-3 text-text-tertiary italic">This post's content is stored offchain.</p>
-        )
-      )}
-      {post.image && <PostImage image={post.image} />}
-      {post.quoted && <QuotedPost post={post.quoted} />}
+      <ContentWarning warning={post.moderation?.warning}>
+        {post.content !== null ? (
+          <RichText text={post.content} className="mt-3 text-lg leading-7 text-text-primary" />
+        ) : (
+          !post.image && (
+            <p className="mt-3 text-text-tertiary italic">
+              This post's content is stored offchain.
+            </p>
+          )
+        )}
+        {post.image && <PostImage image={post.image} />}
+        {post.quoted && <QuotedPost post={post.quoted} />}
+      </ContentWarning>
       <div className="py-4">
         <FullTime seconds={post.createdAt} />
         {post.editedAt && <span className="mono-caps text-xs text-text-tertiary"> · Edited</span>}

@@ -5,6 +5,7 @@ import {
   MAX_IMAGE_BYTES,
   MEDIA_CHUNK_BYTES,
   mediaStoreAbi,
+  readPostContent,
   readPostImage,
   sponsorRouterAbi,
 } from '@lens-monad/protocol';
@@ -24,6 +25,8 @@ import { numberEnv } from './env';
 import { HttpError } from './guard';
 import type { SessionData } from './session';
 import { rateLimit } from './state';
+import { assertSponsorPolicy, moderationSnapshot } from './moderation';
+import { contentDecision } from '../moderation-policy';
 
 /**
  * The Account a sponsored request acts for: the session's, confirmed on-chain to still belong to the EOA that signed
@@ -34,6 +37,7 @@ export async function sponsoredAccount(session: SessionData): Promise<Address> {
   if (!owner || !account) {
     throw new HttpError(401, 'Sign in with a Lens account first');
   }
+  await assertSponsorPolicy(owner, account);
   if (!(await isOwnedBy(account, owner))) {
     throw new HttpError(403, 'Your wallet no longer owns this account, sign in again');
   }
@@ -45,6 +49,28 @@ export async function sponsoredAccount(session: SessionData): Promise<Address> {
   }
   await rateLimit(`relay:${account}`, numberEnv('RELAY_RATE_LIMIT_PER_MINUTE', 30), 60 * 1000);
   return account;
+}
+
+/** Calldata and inline metadata are inspected before ownership RPCs and simulation. */
+export async function assertRelayContent(target: Address, data: Hex) {
+  if (!isAddressEqual(target, contracts.LensGlobalFeed)) return;
+  const call = decode(feedAbi, data);
+  if (call?.functionName !== 'createPost') return;
+  const [post] = call.args as readonly [{ contentURI: string; repostedPostId: bigint }];
+  if (post.repostedPostId !== 0n) return;
+  const text = readPostContent(post.contentURI);
+  // An image post without a caption has no text to check.
+  if (text === null && readPostImage(post.contentURI)) return;
+  if (text === null)
+    throw new HttpError(
+      400,
+      'Relayed posts need inline Lens text metadata so this instance can check its content policy'
+    );
+  await assertTextAllowed(text);
+}
+export async function assertTextAllowed(text: string) {
+  if (contentDecision((await moderationSnapshot()).filters, text).blocked)
+    throw new HttpError(403, 'This post matches a blocked word or link on this instance');
 }
 
 /**

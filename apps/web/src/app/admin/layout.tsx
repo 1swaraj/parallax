@@ -18,6 +18,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       : []),
     ...(admin.role === 'owner' ? [['team', 'Team']] : []),
     ['moderation', 'Moderation'],
+    ['moderation-log', 'Moderation log'],
     ...(admin.role !== 'moderator' ? [['audit', 'Audit log']] : []),
   ];
   return (

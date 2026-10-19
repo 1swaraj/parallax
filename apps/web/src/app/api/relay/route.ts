@@ -19,6 +19,7 @@ import {
 import { getSession } from '@/lib/server/session';
 import {
   assertMediaSponsored,
+  assertRelayContent,
   assertSponsoredCall,
   isMediaCall,
   sponsoredAccount,
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
       throw new HttpError(400, 'Invalid or oversized call');
     }
     const kind = assertSponsoredCall(target, data);
+    await assertRelayContent(target, data);
     const account = await sponsoredAccount(await getSession());
     // An image costs ~7 text posts (up to two chunks of ~2.9M gas): a daily allowance per Account, in chunks.
     if (kind === 'media-chunk') {

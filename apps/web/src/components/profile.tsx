@@ -28,6 +28,7 @@ import { AccountList, PostList } from './lists';
 import { useConfirm, useEditProfile } from './modals';
 import { useToast } from './toast';
 import { Button, Dropdown, EmptyState, ErrorState, PageHeader, Spinner, Tabs } from './ui';
+import { useReport } from './moderation';
 
 function ProfileActions({ profile }: { profile: ProfileView }) {
   const { account: viewer, run } = useLensActions();
@@ -35,6 +36,7 @@ function ProfileActions({ profile }: { profile: ProfileView }) {
   const confirm = useConfirm();
   const toast = useToast();
   const { account, relationship } = profile;
+  const { openReport, dialog } = useReport('account', account.address);
   const isSelf = !!viewer && isAddressEqual(viewer, account.address);
 
   const toggleBlock = useMutation({
@@ -54,8 +56,10 @@ function ProfileActions({ profile }: { profile: ProfileView }) {
   }
   return (
     <div className="flex items-center gap-2">
+      {dialog}
       <Dropdown
         items={[
+          { label: 'Report profile', icon: 'block', onSelect: openReport },
           {
             label: 'Copy account address',
             icon: 'link',

@@ -6,20 +6,20 @@ import { findAdmin, adminDatabase, roleAllowed } from '@/lib/server/admin';
 import { secretStatus } from '@/lib/server/secrets';
 import { AdminEditor, SecretEditor, EmailTools } from '@/components/admin-editor';
 import { AdminTeam } from '@/components/admin-team';
+import { AdminModeration } from '@/components/admin-moderation';
 export default async function AdminSection({ params }: { params: Promise<{ section: string }> }) {
   const { section } = await params;
   const admin = await findAdmin();
   if (!admin) notFound();
-  if (section === 'moderation')
+  if (section === 'moderation' || section === 'moderation-log')
     return (
-      <div className="space-y-4 p-4 sm:p-6">
-        <h2 className="text-2xl">Moderation</h2>
-        <p className="text-sm text-text-secondary">
-          Moderation controls will appear here. An instance can hide posts and accounts from its own
-          reads and refuse to sponsor or relay for an account. It cannot delete anything onchain:
-          Lens content is permissionless.
-        </p>
-      </div>
+      <AdminModeration
+        role={admin.role}
+        policy={
+          roleAllowed(admin.role, 'config') ? (await getInstanceConfig()).moderation : undefined
+        }
+        initialTab={section === 'moderation-log' ? 'Log' : 'Reports'}
+      />
     );
   if (!roleAllowed(admin.role, section === 'team' ? 'team' : 'config')) notFound();
   if (section === 'team') {

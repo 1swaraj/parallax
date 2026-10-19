@@ -6,7 +6,7 @@ import { maxGasPerTransaction } from '@/lib/server/env';
 import { assertSameOrigin, assertSponsorshipAvailable, handle } from '@/lib/server/guard';
 import { profileMetadataURI } from '@/lib/server/requests';
 import { getSession } from '@/lib/server/session';
-import { sponsoredAccount } from '@/lib/server/sponsor';
+import { sponsoredAccount, assertTextAllowed } from '@/lib/server/sponsor';
 
 export const maxDuration = 60;
 
@@ -15,7 +15,9 @@ export async function POST(request: Request) {
   return handle(async () => {
     assertSponsorshipAvailable();
     assertSameOrigin(request);
-    const metadataURI = profileMetadataURI((await request.json()) as Record<string, unknown>);
+    const body = (await request.json()) as Record<string, unknown>;
+    const metadataURI = profileMetadataURI(body);
+    await assertTextAllowed(`${body.name ?? ''}\n${body.bio ?? ''}\n${body.picture ?? ''}`);
     const account = await sponsoredAccount(await getSession());
     const { hash, blockNumber } = await sendAsRelayer(
       {

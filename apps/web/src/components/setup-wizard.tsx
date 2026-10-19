@@ -7,6 +7,7 @@ import { Button } from './ui';
 import { AdminEditor, SecretEditor, EmailTools } from './admin-editor';
 import { api, useSession } from '@/lib/session';
 import type { InstanceConfig } from '@/lib/instance-schema';
+import { ModerationPolicyEditor } from './moderation-policy';
 const STEPS = ['Claim owner', 'Branding', 'Network', 'Sponsorship', 'Email', 'Moderation', 'Done'];
 export function SetupWizard({
   config,
@@ -109,18 +110,7 @@ export function SetupWizard({
           <EmailTools />
         </>
       )}
-      {step === 5 && (
-        <div className="space-y-4 text-sm">
-          <p>
-            Moderation controls will be available in the admin panel. Instances can hide content
-            from their own reads and refuse sponsorship. They cannot delete anything onchain: Lens
-            content is permissionless.
-          </p>
-          <Link className="text-accent-primary underline" href="/admin/moderation">
-            View moderation
-          </Link>
-        </div>
-      )}
+      {step === 5 && <ModerationPolicyEditor policy={config.moderation} />}
       {step === 6 && (
         <div className="space-y-4">
           <p>Your instance is ready. You can change these settings later in the admin panel.</p>

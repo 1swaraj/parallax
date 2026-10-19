@@ -67,6 +67,44 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS lens_web.signups (
     account text PRIMARY KEY, created_at timestamptz NOT NULL DEFAULT now()
   );
+  CREATE TABLE IF NOT EXISTS lens_web.moderation_accounts (
+    account text PRIMARY KEY, owner text, member boolean NOT NULL DEFAULT false,
+    approved boolean NOT NULL DEFAULT false, hidden boolean NOT NULL DEFAULT false,
+    suspended boolean NOT NULL DEFAULT false, sponsor_revoked boolean NOT NULL DEFAULT false,
+    label text, reason text NOT NULL DEFAULT '', created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS lens_web.moderation_posts (
+    post_id text PRIMARY KEY, action text NOT NULL CHECK (action IN ('hide', 'label')), reason text NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS lens_web.moderation_filters (
+    id bigserial PRIMARY KEY, kind text NOT NULL CHECK (kind IN ('word', 'link', 'regex')),
+    pattern text NOT NULL, action text NOT NULL CHECK (action IN ('block', 'hide', 'label')),
+    reason text NOT NULL, created_by text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS lens_web.moderation_allowlist (
+    address text PRIMARY KEY, added_by text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS lens_web.moderation_invites (
+    id bigserial PRIMARY KEY, code_hash text UNIQUE NOT NULL, max_uses integer NOT NULL CHECK (max_uses > 0),
+    uses integer NOT NULL DEFAULT 0, expires_at timestamptz NOT NULL, created_by text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS lens_web.moderation_redemptions (
+    invite_id bigint NOT NULL REFERENCES lens_web.moderation_invites(id), owner text NOT NULL,
+    account text, redeemed_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (invite_id, owner)
+  );
+  ALTER TABLE lens_web.moderation_redemptions ADD COLUMN IF NOT EXISTS account text;
+  CREATE TABLE IF NOT EXISTS lens_web.moderation_admissions (
+    owner text PRIMARY KEY, issued_at timestamptz NOT NULL DEFAULT now(), expires_at timestamptz NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS lens_web.moderation_reports (
+    id bigserial PRIMARY KEY, reporter text NOT NULL, target_type text NOT NULL CHECK (target_type IN ('post', 'account')),
+    target text NOT NULL, reason text NOT NULL CHECK (reason IN ('spam', 'harassment', 'illegal', 'other')),
+    details text NOT NULL DEFAULT '', status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved', 'dismissed')),
+    created_at timestamptz NOT NULL DEFAULT now(), resolved_at timestamptz
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS moderation_report_open ON lens_web.moderation_reports (reporter, target_type, target) WHERE status = 'open';
+  CREATE INDEX IF NOT EXISTS moderation_report_queue ON lens_web.moderation_reports (status, id DESC);
   CREATE TABLE IF NOT EXISTS lens_web.alert_state (
     type text PRIMARY KEY, first_seen timestamptz DEFAULT now(), sent_at timestamptz
   );

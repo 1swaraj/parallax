@@ -47,4 +47,6 @@ export async function writeConfig(sql: WriteSql, input: unknown, actor: string) 
       updated_by = excluded.updated_by, updated_at = now()`;
   }
   await sql`INSERT INTO lens_web.audit_log (actor, action, details) VALUES (${actor}, 'config.update', ${sql.json({ keys: Object.keys(patch) })})`;
+  if (patch.moderation)
+    await sql`INSERT INTO lens_web.audit_log (actor, action, details) VALUES (${actor}, 'moderation.policy', ${sql.json(patch.moderation)})`;
 }

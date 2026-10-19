@@ -10,6 +10,9 @@ import { tokenHash } from './setup';
 import { accountsOwnedBy } from './accounts';
 import { serverState } from './state';
 import { HttpError } from './guard';
+import { moderationSnapshot } from './moderation';
+import { visibleNotification } from './moderation-reads';
+import { visibleLikes } from './moderation-likes';
 
 export type AdminNotificationType =
   'relayer_low_balance' | 'health_degraded' | 'gas_budget_exhausted' | 'new_reports';
@@ -173,7 +176,10 @@ export async function runDigests() {
           if (!response.ok) throw new Error('Could not read notifications');
           const page = (await response.json()) as Page<NotificationView>;
           const since = row.sent_at.getTime();
-          for (const item of page.items.filter((n) => Number(n.createdAt) * 1000 > since)) {
+          const moderation = await moderationSnapshot();
+          for (const item of page.items.filter(
+            (n) => Number(n.createdAt) * 1000 > since && visibleNotification(n, moderation)
+          )) {
             lines.push(
               `${item.actor.username || item.actor.address}: ${item.type}${item.post ? ` — ${config.appUrl}/p/${item.post.id}` : ''}`
             );
@@ -182,7 +188,9 @@ export async function runDigests() {
             since: row.sent_at,
             limit: 100,
           });
-          for (const item of likes.items.filter((like) => new Date(like.likedAt).getTime() > since))
+          for (const item of (await visibleLikes(likes.items)).filter(
+            (like) => new Date(like.likedAt).getTime() > since
+          ))
             lines.push(`A new like on ${config.appUrl}/p/${item.postId}`);
         }
         if (lines.length) {

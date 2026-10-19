@@ -35,7 +35,9 @@ export function ThreadPage({ id }: { id: string }) {
           {data.post.deleted ? (
             <div className="border-b border-border-default px-4 py-3">
               <div className="rounded-sm bg-bg-subtle px-4 py-3 text-sm text-text-tertiary">
-                This post is unavailable.
+                {data.post.moderation?.hidden
+                  ? 'Hidden by moderators'
+                  : 'This post is unavailable.'}
               </div>
             </div>
           ) : (

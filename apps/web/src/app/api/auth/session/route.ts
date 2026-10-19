@@ -4,6 +4,7 @@ import { accountsOwnedBy } from '@/lib/server/accounts';
 import { isOwnedBy } from '@/lib/server/chain';
 import { assertSameOrigin, handle, HttpError } from '@/lib/server/guard';
 import { recordDirectSignup } from '@/lib/server/signups';
+import { assertAccess, selectDirectSignup, rememberExternalAccount } from '@/lib/server/moderation';
 import { getSession } from '@/lib/server/session';
 
 export async function GET() {
@@ -16,6 +17,10 @@ export async function GET() {
         session.account = found;
         await session.save();
       }
+    }
+    if (session.owner) {
+      if (session.account) await rememberExternalAccount(session.account, session.owner);
+      await assertAccess(session.owner, session.account);
     }
     return NextResponse.json(
       { owner: session.owner ?? null, account: session.account ?? null },
@@ -36,6 +41,9 @@ export async function PUT(request: Request) {
     if (!account || !isAddress(account) || !(await isOwnedBy(account as Address, session.owner))) {
       throw new HttpError(403, "You don't own that account");
     }
+    if (signup === true) await selectDirectSignup(account as Address, session.owner);
+    await rememberExternalAccount(account as Address, session.owner);
+    await assertAccess(session.owner, account as Address);
     session.account = account as Address;
     await session.save();
     if (signup === true)
