@@ -7,13 +7,20 @@ import {
   deletePost,
   feedAbi,
   follow,
+  imagePost,
+  MAX_IMAGE_BYTES,
+  MEDIA_CHUNK_BYTES,
+  MEDIA_STORE_ADDRESS,
+  mediaStoreAbi,
+  putMedia,
   repost,
   sponsorRouterAbi,
+  toDataURI,
   unblockAccount,
   unfollow,
   type AccountCall,
 } from '@lens-monad/protocol';
-import { encodeFunctionData, zeroHash } from 'viem';
+import { bytesToHex, encodeFunctionData, zeroHash } from 'viem';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { contracts } from '../src/lib/config';
 import { publicClient, sendAsRelayer } from '../src/lib/server/chain';
@@ -107,6 +114,43 @@ describe('the calls /api/relay sponsors', () => {
         args: [1n, { contentURI: content, extraData: [] }, [], [], [], []],
       }),
     });
+  });
+
+  it('says which calls are images, and which posts have one', () => {
+    const id = `0x${'ab'.repeat(32)}` as const;
+    const [chunk] = putMedia(MEDIA_STORE_ADDRESS, id, new Uint8Array(MEDIA_CHUNK_BYTES));
+    expect(assertSponsoredCall(chunk!.target, chunk!.data)).toBe('media-chunk');
+    const withImage = imagePost('hi', {
+      item: `https://parallax.example/media/${me}/${id}`,
+      type: 'image/webp',
+      width: 1,
+      height: 1,
+      locator: { chainId: 31337, store: MEDIA_STORE_ADDRESS, author: me, id },
+    });
+    const post = createPost(FEED, me, toDataURI(withImage));
+    expect(assertSponsoredCall(post.target, post.data)).toBe('image-post');
+    const text = createPost(FEED, me, content);
+    expect(assertSponsoredCall(text.target, text.data)).toBe('action');
+    const followed = follow(GRAPH, me, them);
+    expect(assertSponsoredCall(followed.target, followed.data)).toBe('action');
+  });
+
+  it('refuses image chunks over the chunk size, past the image size, or empty', () => {
+    const put = (offset: number, size: number) => ({
+      target: MEDIA_STORE_ADDRESS,
+      data: encodeFunctionData({
+        abi: mediaStoreAbi,
+        functionName: 'put',
+        args: [zeroHash, BigInt(offset), bytesToHex(new Uint8Array(size))],
+      }),
+    });
+    const tooBig = "Parallax can't pay the fee of an image that big";
+    refused(put(0, MEDIA_CHUNK_BYTES + 1), tooBig);
+    refused(put(MAX_IMAGE_BYTES - 1, 2), tooBig);
+    refused(put(0, 0), tooBig);
+    expect(
+      assertSponsoredCall(put(MAX_IMAGE_BYTES - 1, 1).target, put(MAX_IMAGE_BYTES - 1, 1).data)
+    ).toBe('media-chunk');
   });
 
   it('refuses posts that attach rules', () => {

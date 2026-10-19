@@ -9,7 +9,7 @@ import { useAuthModal, useEditProfile } from '@/components/modals';
 import { useTheme, type Theme } from '@/components/theme';
 import { useToast } from '@/components/toast';
 import { Button, CornerBrackets, PageHeader } from '@/components/ui';
-import { useGasMode, useLensActions, type GasMode } from '@/lib/actions';
+import { useGasMode, useLensActions, useSponsorship, type GasMode } from '@/lib/actions';
 import { APP_NAME } from '@/lib/brand';
 import { chain, contracts, EXPLORER_URL, explorerAddressUrl } from '@/lib/config';
 import { useProfile } from '@/lib/indexer';
@@ -145,6 +145,7 @@ function FeesSection() {
   const { account } = useSession();
   const { data } = useProfile(account, null);
   const [mode, setMode] = useGasMode();
+  const available = useSponsorship();
   const { isConnected } = useConnection();
   const { enableSponsorship } = useLensActions();
   const toast = useToast();
@@ -157,7 +158,10 @@ function FeesSection() {
     {
       id: 'sponsored',
       title: `${APP_NAME} pays (free)`,
-      description: `${APP_NAME} sends your posts, follows and profile changes for you and pays their fees. It can act for your account but never move its funds, and you can revoke it anytime.`,
+      description:
+        available === false
+          ? `${APP_NAME} isn't paying network fees right now, so your wallet pays until it does.`
+          : `${APP_NAME} sends your posts, follows and profile changes for you and pays their fees. It can act for your account but never move its funds, and you can revoke it anytime.`,
     },
     {
       id: 'direct',

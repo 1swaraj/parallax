@@ -1,6 +1,12 @@
 'use client';
 
-import { blockAccount, deletePost, repost, type PostView } from '@lens-monad/protocol';
+import {
+  blockAccount,
+  deletePost,
+  repost,
+  type ImageView,
+  type PostView,
+} from '@lens-monad/protocol';
 import { useMutation } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -64,6 +70,50 @@ function ActionButton({
   );
 }
 
+/**
+ * A post's image, at its own aspect ratio (from its metadata, so the feed doesn't jump as images load), opening at
+ * full size. Inside a quoted post, which is a link itself, it's smaller and not a link.
+ */
+export function PostImage({ image, compact = false }: { image: ImageView; compact?: boolean }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div className="mt-3 rounded-sm bg-bg-subtle px-4 py-3 text-sm text-text-tertiary">
+        This image is unavailable.
+      </div>
+    );
+  }
+  const img = (
+    // eslint-disable-next-line @next/next/no-img-element -- served by the indexer, or hosted by another Lens app
+    <img
+      src={image.url}
+      alt={image.alt ?? 'Image'}
+      width={image.width ?? undefined}
+      height={image.height ?? undefined}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      className={`block h-auto w-auto max-w-full bg-bg-subtle object-contain ${compact ? 'max-h-[240px]' : 'max-h-[510px]'}`}
+    />
+  );
+  const frame =
+    'mt-3 block w-fit max-w-full overflow-hidden rounded-sm border border-border-default';
+  if (compact) {
+    return <div className={frame}>{img}</div>;
+  }
+  return (
+    <a
+      href={image.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(event) => event.stopPropagation()}
+      className={`focus-ring ${frame}`}
+    >
+      {img}
+    </a>
+  );
+}
+
 /** The quoted post inside a post. Its text is plain because the card is itself a link; links can't nest. */
 export function QuotedPost({ post, link = true }: { post: PostView; link?: boolean }) {
   if (post.deleted) {
@@ -86,6 +136,7 @@ export function QuotedPost({ post, link = true }: { post: PostView; link?: boole
           {post.content}
         </p>
       )}
+      {post.image && <PostImage image={post.image} compact />}
     </>
   );
   const frame = 'mt-3 block rounded-sm border border-border-default bg-bg-elevated px-3 py-3';
@@ -392,10 +443,13 @@ export function PostCard({
           {shown.content !== null ? (
             <RichText text={shown.content} className="mt-1 text-base leading-6 text-text-primary" />
           ) : (
-            <p className="mt-1 text-sm text-text-tertiary italic">
-              This post's content is stored offchain.
-            </p>
+            !shown.image && (
+              <p className="mt-1 text-sm text-text-tertiary italic">
+                This post's content is stored offchain.
+              </p>
+            )
           )}
+          {shown.image && <PostImage image={shown.image} />}
           {shown.quoted && <QuotedPost post={shown.quoted} />}
           <div className="mt-3">
             <PostActions post={shown} />
@@ -434,8 +488,11 @@ export function FocusPost({ post, lineAbove }: { post: PostView; lineAbove: bool
       {post.content !== null ? (
         <RichText text={post.content} className="mt-3 text-lg leading-7 text-text-primary" />
       ) : (
-        <p className="mt-3 text-text-tertiary italic">This post's content is stored offchain.</p>
+        !post.image && (
+          <p className="mt-3 text-text-tertiary italic">This post's content is stored offchain.</p>
+        )
       )}
+      {post.image && <PostImage image={post.image} />}
       {post.quoted && <QuotedPost post={post.quoted} />}
       <div className="py-4">
         <FullTime seconds={post.createdAt} />

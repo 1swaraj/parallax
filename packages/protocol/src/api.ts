@@ -17,6 +17,7 @@
  *   GET /trends?limit=5&hours=24                           { items: TrendView[] } hashtags of the most posts in the window
  *   GET /notifications?account&type=all|mentions&cursor   Page<NotificationView>
  *   GET /notifications/unread?account&since                { count: number } notifications newer than the `since` cursor
+ *   GET /media/:author/:id                                 the image's bytes, once all its chunks are in and match its id
  *   GET /status                                            Ponder: { [chain]: { id, block: { number, timestamp } } }
  */
 
@@ -43,10 +44,24 @@ export type Relationship = {
   blockedBy: boolean;
 };
 
+/**
+ * A post's image. `url` is the app's /media path for images in this chain's MediaStore, or the metadata's https URL
+ * for images hosted elsewhere. Width and height are the metadata's, when it gives them.
+ */
+export type ImageView = {
+  url: string;
+  type: string;
+  alt: string | null;
+  width: number | null;
+  height: number | null;
+};
+
 export type PostView = {
   id: string;
   author: AccountView;
   content: string | null;
+  /** Null for posts without an image, and for deleted posts. */
+  image: ImageView | null;
   contentUri: string;
   rootPostId: string;
   repliedPostId: string | null;

@@ -1,27 +1,22 @@
 'use client';
 
-import { useConnect, useConnection, useConnectors } from 'wagmi';
-import { APP_NAME, APP_TAGLINE } from '@/lib/brand';
+import { useConnection } from 'wagmi';
+import { APP_TAGLINE } from '@/lib/brand';
 import { useSession } from '@/lib/session';
-import { connectErrorToast, connectorAction, connectorIcon, SignOutButton } from './auth';
+import { SignInOptions, SignOutButton } from './auth';
 import { FooterLinks } from './footer-links';
 import { Wordmark } from './brand';
-import { Icon } from './icons';
 import { useAuthModal } from './modals';
-import { useToast } from './toast';
 import { Button } from './ui';
 
 /**
- * What signed-out visitors see instead of the app, like X's: the pitch and a way in, no timeline. A wallet button
- * connects, then the sign-in flow takes over (one signature, then a username if the wallet has no account).
+ * What signed-out visitors see instead of the app, like X's: the pitch and a way in, no timeline. Passkeys come first
+ * (SignInOptions). Once connected, the sign-in flow takes over: one signature, then a username for a new account.
  */
 export function Landing() {
   const { owner, account } = useSession();
   const { isConnected } = useConnection();
-  const connectors = useConnectors();
-  const { mutate: connect, isPending, variables } = useConnect();
   const openAuth = useAuthModal();
-  const toast = useToast();
 
   return (
     <div className="flex min-h-dvh flex-col bg-bg-default">
@@ -55,29 +50,8 @@ export function Landing() {
                 Sign in with your wallet
               </Button>
             ) : (
-              connectors.map((connector, index) => (
-                <Button
-                  key={connector.uid}
-                  variant={index === 0 ? 'primary' : 'secondary'}
-                  disabled={isPending}
-                  onClick={() =>
-                    connect(
-                      { connector },
-                      { onSuccess: openAuth, onError: connectErrorToast(toast) }
-                    )
-                  }
-                >
-                  <Icon name={connectorIcon(connector)} size={16} />
-                  {isPending && variables?.connector === connector
-                    ? 'Connecting…'
-                    : connectorAction(connector)}
-                </Button>
-              ))
+              <SignInOptions onConnected={openAuth} />
             )}
-            <p className="mt-2 text-xs text-text-tertiary">
-              Joining and posting are free: {APP_NAME} pays the network fees. Your followers come
-              with you to any Lens app.
-            </p>
           </div>
         </div>
       </main>

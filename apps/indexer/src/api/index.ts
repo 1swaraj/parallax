@@ -1,12 +1,17 @@
-import type {
-  AccountView,
-  NotificationView,
-  Page,
-  PostView,
-  ProfileView,
-  Relationship,
-  ThreadView,
-  TrendView,
+import {
+  MEDIA_STORE_ADDRESS,
+  mediaId,
+  mediaPath,
+  sniffImageType,
+  type AccountView,
+  type ImageView,
+  type NotificationView,
+  type Page,
+  type PostView,
+  type ProfileView,
+  type Relationship,
+  type ThreadView,
+  type TrendView,
 } from '@lens-monad/protocol';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
@@ -31,8 +36,16 @@ import {
   type AnyPgColumn,
 } from 'ponder';
 import { db } from 'ponder:api';
-import schema, { account, block, follow, hashtag, notification, post } from 'ponder:schema';
-import { getAddress, isAddress, type Address } from 'viem';
+import schema, {
+  account,
+  block,
+  follow,
+  hashtag,
+  mediaChunk,
+  notification,
+  post,
+} from 'ponder:schema';
+import { getAddress, isAddress, isAddressEqual, type Address } from 'viem';
 
 type AccountRow = typeof account.$inferSelect;
 type PostRow = typeof post.$inferSelect;
@@ -49,6 +62,16 @@ const MAX_LISTED_AUTHORS = 1000;
 const MAX_TREND_HOURS = 7 * 24;
 /** Trends count the hashtags of at most this many of the window's most recent posts. */
 const MAX_TREND_SCAN = 50_000;
+
+const CHAIN_ID = Number(process.env.PONDER_CHAIN_ID ?? 31337);
+
+/** Media ids /media won't serve (MEDIA_BLOCKLIST, comma-separated): they stay on-chain, but not on the app. */
+const MEDIA_BLOCKLIST = new Set(
+  (process.env.MEDIA_BLOCKLIST ?? '')
+    .split(',')
+    .map((id) => id.trim().toLowerCase())
+    .filter(Boolean)
+);
 
 const app = new Hono();
 
@@ -143,6 +166,26 @@ function toAccountView(row: AccountRow): AccountView {
     posts: row.posts,
     createdAt: row.createdAt.toString(),
   };
+}
+
+/**
+ * Images in this chain's MediaStore are served by /media, through the app's origin. Others only when their metadata
+ * points at an https URL: the browser loads them from there.
+ */
+function toImageView(image: PostRow['image']): ImageView | null {
+  if (!image) {
+    return null;
+  }
+  const { locator } = image;
+  const url =
+    locator && locator.chainId === CHAIN_ID && isAddressEqual(locator.store, MEDIA_STORE_ADDRESS)
+      ? mediaPath(locator.author, locator.id)
+      : image.item.startsWith('https://')
+        ? image.item
+        : null;
+  return url
+    ? { url, type: image.type, alt: image.alt, width: image.width, height: image.height }
+    : null;
 }
 
 /** A placeholder for authors the indexer doesn't track, e.g. EOAs posting directly. */
@@ -253,6 +296,7 @@ async function hydrate(rows: PostRow[], viewer: Address | null): Promise<PostVie
         editedAt: row.editedAt,
       }) as Omit<PostView, 'author' | 'quoted' | 'reposted' | 'repliedTo' | 'viewerRepostId'>),
       author: authorOf(row.author),
+      image: row.deleted ? null : toImageView(row.image),
       quoted: nested(row.quotedPostId),
       reposted: nested(row.repostedPostId),
       repliedTo: repliedTo
@@ -783,6 +827,49 @@ app.get('/notifications/unread', async (c) => {
     .where(and(visibleNotifications(recipient), relativeTo(notification, 'after', since)))
     .limit(MAX_UNREAD);
   return c.json({ count: rows.length });
+});
+
+// Media
+
+/**
+ * A media's bytes: its chunks from offset 0, as long as they follow each other, and only once their SHA-256 is the
+ * id, so a missing chunk or a partial upload is a 404 rather than a broken image. Served only as one of the image
+ * types it sniffs as, never as what the author says it is, and sandboxed, so no media runs as a page of the app's
+ * origin. The bytes behind an id never change, so caches keep them.
+ */
+app.get('/media/:author/:id', async (c) => {
+  const author = requiredAddressParam(c.req.param('author'), 'author');
+  const id = c.req.param('id').toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(id)) {
+    throw badRequest('Invalid id');
+  }
+  if (MEDIA_BLOCKLIST.has(id)) {
+    throw new HTTPException(451, { message: 'This image is unavailable' });
+  }
+  const chunks = await db
+    .select({ offset: mediaChunk.offset, data: mediaChunk.data })
+    .from(mediaChunk)
+    .where(and(eq(mediaChunk.author, author), eq(mediaChunk.id, id as `0x${string}`)))
+    .orderBy(asc(mediaChunk.offset));
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (const chunk of chunks) {
+    if (chunk.offset === size) {
+      parts.push(chunk.data);
+      size += chunk.data.length;
+    }
+  }
+  const bytes = Buffer.concat(parts);
+  const type = size > 0 && (await mediaId(bytes)) === id ? sniffImageType(bytes) : null;
+  if (!type) {
+    throw new HTTPException(404, { message: 'Not found' });
+  }
+  return c.body(bytes, 200, {
+    'Content-Type': type,
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    'Content-Security-Policy': "default-src 'none'; sandbox",
+    'X-Content-Type-Options': 'nosniff',
+  });
 });
 
 export default app;

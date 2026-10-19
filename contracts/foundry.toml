@@ -1,0 +1,15 @@
+# Parallax's own contracts. Lens' are in lens-monad-protocol.
+#
+# MediaStore is deployed with CREATE2 from its init code, so the same bytecode lands at the same address on every
+# chain: the compiler version and settings are pinned, and the metadata hash, which changes with paths and comments,
+# is left out.
+[profile.default]
+src = "src"
+out = "out"
+cache_path = "cache"
+solc_version = "0.8.28"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+bytecode_hash = "none"
+cbor_metadata = false

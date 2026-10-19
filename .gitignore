@@ -8,6 +8,8 @@ dist/
 .env.local
 .DS_Store
 .anvil/
+contracts/out/
+contracts/cache/
 *.log
 .next*/
 .claude/

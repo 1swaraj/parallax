@@ -41,8 +41,10 @@ function passkeyError(error: unknown): Error {
       case 'PASSKEY_OPERATION_FAILED':
         return new UserRejectedRequestError(error);
       case 'PRF_UNAVAILABLE':
+        // The PRF extension, which derives the account (https://mera.category.xyz/authenticator-support/): Chrome's
+        // local profile (Chrome not signed in, or not syncing passwords), Bitwarden and Dashlane don't support it.
         return new Error(
-          "This passkey can't hold an account: its password manager doesn't support it yet. Try iCloud Keychain, Google Password Manager or 1Password."
+          "This passkey is saved somewhere that can't hold an account, such as Chrome's local profile, Bitwarden or Dashlane. Save it to Google Password Manager (signed in to Chrome, with passwords syncing), iCloud Keychain or 1Password instead, and delete the one that didn't work."
         );
       case 'CRYPTO_UNAVAILABLE':
         return new Error('Passkeys need a secure connection (HTTPS).');

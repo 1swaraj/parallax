@@ -9,6 +9,7 @@ the gas through the protocol's `SponsorRouter`, and anyone can switch to paying 
 apps/web          Next.js app, and its server: SIWE sessions, the relayer, likes (/api/*)
 apps/indexer      Ponder indexer over the Lens contracts, with the REST API the app reads
 packages/protocol ABIs, address books, calldata builders, Lens metadata, error messages, API types
+contracts/        Parallax's own contract: MediaStore, for post images
 scripts/          Local node + deployment, seed data, ABI and address book sync
 ```
 
@@ -17,6 +18,8 @@ scripts/          Local node + deployment, seed data, ABI and address book sync
 - **Timelines:** Everyone and Following, infinite scroll, a "Show new posts" pill, and `n` to compose.
 - **Posts:** replies, quote posts, reposts and undo, delete, threads with the full ancestor chain, @mentions,
   #hashtags and links, 280 characters.
+- **Images:** one image per post, with a description. Stored on Monad itself, not on a storage service: see Images
+  below.
 - **People:** profiles, followers and following, who to follow, follow and block, and "Follows you".
 - **Likes:** the heart, likes counts, and a private Likes tab. Lens V3 has no onchain likes, so these are Parallax's
   own, kept by its server, and other Lens apps don't see them.
@@ -61,8 +64,36 @@ timelines, profiles, threads, notifications, search and trends (`apps/indexer/sr
 refreshing. There's no hosted Lens API for this deployment, and the public RPCs cap `eth_getLogs` at 100 blocks, so reading the
 chain from the browser doesn't scale.
 
-**Content.** Posts and profiles are Lens metadata (`text-only` 3.0.0, `account` 1.0.0), inline in the contentURI as a
-base64 `data:` URI, like the contracts' own token URIs, so there's no storage service to run.
+**Content.** Posts and profiles are Lens metadata (`text-only` 3.0.0, `image` 3.0.0, `account` 1.0.0), inline in the
+contentURI as a base64 `data:` URI, like the contracts' own token URIs, so there's no storage service to run.
+
+**Images.** An image is too big for the post's metadata: the Feed stores the contentURI, and a fresh 32-byte storage
+slot costs 27,900 gas on Monad ([opcode pricing](https://docs.monad.xyz/developer-essentials/opcode-pricing)), ~870
+gas a byte. So images go in the chain's history instead, the way
+[streaming-pod](https://github.com/1swaraj/streaming-pod) streams video over Monad, at ~40 gas a byte:
+
+1. The browser resizes the image to 1280px on its longest side and re-encodes it as WebP (JPEG where the browser can't
+   encode WebP) at the best quality that fits 120 KB (`lib/images.ts`). Re-encoding also drops the file's metadata,
+   e.g. a photo's location, which would otherwise be public for good.
+2. The Account calls `MediaStore.put(id, offset, bytes)` once per 64 KB, sponsored or from the wallet like any other
+   action. `MediaStore` (`contracts/src/MediaStore.sol`) only emits the bytes as a log: the author is the Account
+   that called it, and the id is the image's SHA-256. 64 KB transactions are known to go through on Monad mainnet
+   (streaming-pod sends them); the docs give a 30M gas limit per transaction but no size limit.
+3. The post is Lens `image` metadata. Its `item` is `https://<app>/media/<account>/<id>`, so other Lens apps can show
+   it, and its `onchain` attribute says where the bytes are (`eip155:<chain>:<MediaStore>/<account>/<id>`), so anyone
+   can rebuild the image from the logs without Parallax.
+4. The indexer keeps the chunks (`media_chunk`), and `/media/<account>/<id>` puts them back together. It serves them
+   only once their SHA-256 is the id, and only as the image type their first bytes say (JPEG, PNG, WebP or GIF), never
+   as HTML or SVG, and sandboxed. The bytes behind an id never change, so they're cached for good.
+
+Measured on `anvil --network monad`: a 64 KB chunk uses 2.64M gas (a 2.9M limit, which Monad charges), and a post
+with an image ~1.3M, its metadata being bigger. So a full 120 KB image costs ~6.8M gas with its post, ~0.7 MON at
+102 gwei, and a typical 50 KB one ~3.6M (~0.37 MON), against ~0.8M for a text post. The ~40 gas a byte is EIP-7623's
+calldata floor, which anvil's Monad mode applies; Monad's docs say costs they don't list are Ethereum's, and don't
+mention EIP-7623, so check the figure on testnet. `MediaStore` is deployed through the CREATE2 factory at
+`0x4e59b44847b379578588920ca78fbf26c0b4956c` ([network information](https://docs.monad.xyz/developer-essentials/network-information)),
+so it has the same address on every chain. Images are only offered on chains listed in
+`MEDIA_STORE_DEPLOYMENTS` (`packages/protocol/src/media.ts`).
 
 ## Architecture
 
@@ -140,7 +171,8 @@ pnpm seed:likes                                        # once the app runs: like
 `pnpm chain` deploys with the protocol's own scripts (`DeployMonad`, then `DeployLaunch`), so the addresses are
 deterministic and `packages/protocol/deployments/31337.json` stays valid. Then it seeds the chain (`scripts/seed.ts`):
 14 people with names, bios and pictures, about 40 posts and replies spread over the last four days, quotes, reposts and
-a follow graph, all through the same contracts and relayer the app uses (`SEED=0` to skip). The seed refuses any chain
+a follow graph, all through the same contracts and relayer the app uses (`SEED=0` to skip). It also deploys
+`MediaStore` and lets the relayer pay for images (`scripts/deploy-media-store.ts`). The seed refuses any chain
 but the local one: fake people don't belong on a public network. Restart `pnpm indexer` after restarting the chain.
 Without `DATABASE_URL`, likes live in the web server's memory and go away when it restarts.
 
@@ -155,7 +187,7 @@ pnpm test                                     # unit tests
 pnpm test:e2e                                 # protocol flow against the local chain
 pnpm --filter @lens-monad/indexer test:e2e    # the indexer's API (chain and indexer running)
 pnpm --filter @lens-monad/web test:e2e        # the app's server end to end (chain, indexer and web running)
-node apps/web/test/ui/walkthrough.mjs         # the UI in Chromium: sign up, post, reply, follow, dark mode, mobile
+node apps/web/test/ui/walkthrough.mjs         # the UI in Chromium: sign up, post, reply, an image, follow, dark mode, mobile
 node apps/web/test/ui/passkey.mjs             # passkey accounts, with Chrome's virtual authenticator
 ```
 
@@ -182,9 +214,14 @@ Parallax runs as a Next.js app on Vercel (the pages and the relayer's API), and 
    `PONDER_CHAIN_ID`, `PONDER_RPC_URL`, `PONDER_GET_LOGS_RANGE` and `DATABASE_URL`). Give the indexer a public domain:
    it's the app's `INDEXER_URL`. The app keeps its own tables (relayer nonces, rate limits, the gas budget, and likes, which are
    Parallax's own and off-chain) in the `lens_web` schema of the same database.
-4. **Vercel**, with the settings and variables below. Then check `https://<app>/api/health` answers 200, and point an
+4. **Images.** `RPC_URL=… DEPLOYER_PRIVATE_KEY=… pnpm deploy:media-store` deploys `MediaStore` (any funded key: it
+   isn't owned), then add the chain and the block it prints to `MEDIA_STORE_DEPLOYMENTS` in
+   `packages/protocol/src/media.ts`. For relayers to pay for images, the Safe calls the `setFunction` the script
+   prints on the `SponsorRouter`; until then, image chunks answer 403 and users pay from their wallets. Changing the
+   contract changes its address: `pnpm build:contracts` (Foundry) regenerates `media-store-artifact.ts`.
+5. **Vercel**, with the settings and variables below. Then check `https://<app>/api/health` answers 200, and point an
    uptime monitor at it.
-5. Before the first launch, run the Postgres implementations' tests against a real Postgres (CI or a scratch Railway
+6. Before the first launch, run the Postgres implementations' tests against a real Postgres (CI or a scratch Railway
    database): `TEST_DATABASE_URL=postgres://… pnpm --filter @lens-monad/web test`.
 
 | Vercel setting   | Value                                                                                          |
@@ -213,6 +250,9 @@ Parallax runs as a Next.js app on Vercel (the pages and the relayer's API), and 
 | `SPONSOR_GAS_BUDGET_PER_HOUR`          | Vercel                             | Gas all relayers may spend per hour, e.g. `500000000` (~51 MON at 102 gwei). Required: without it, sponsoring answers 503 |
 | `SPONSOR_MAX_GAS_PER_TX`               | Vercel                             | Highest gas limit one sponsored action may have (1500000). Over it: 400, the user can pay instead                         |
 | `SPONSOR_MAX_GAS_PER_SIGNUP`           | Vercel                             | The same for a sponsored sign-up (3000000)                                                                                |
+| `SPONSOR_MAX_GAS_PER_IMAGE_POST`       | Vercel                             | The same for a post with an image (2500000), whose metadata is bigger                                                     |
+| `SPONSOR_MAX_GAS_PER_MEDIA_CHUNK`      | Vercel                             | The same for a 64 KB chunk of an image (3200000)                                                                          |
+| `SPONSOR_MEDIA_CHUNKS_PER_DAY`         | Vercel                             | Sponsored image chunks per Account per 24 hours (20: 10 to 20 images)                                                     |
 | `DISPLAY_FONT_URL`                     | Vercel, build                      | URL of the titles' font file, which isn't in this repo; the build downloads it. Unset: titles use Inter                   |
 | `RELAY_PAUSED`                         | Vercel                             | `true` turns sponsored actions off (503). Takes a redeploy                                                                |
 | `RELAY_RATE_LIMIT_PER_MINUTE`          | Vercel                             | Sponsored actions per Account per minute (30)                                                                             |
@@ -224,6 +264,7 @@ Parallax runs as a Next.js app on Vercel (the pages and the relayer's API), and 
 | `INDEXER_MAX_LAG_BLOCKS`               | Vercel                             | ... or when the indexer is more blocks behind (50)                                                                        |
 | `HEALTH_TOKEN`                         | Vercel, sensitive                  | Bearer token that shows `/api/health`'s details. Unset: only the status                                                   |
 | `PONDER_*`, `DATABASE_URL`             | Railway (indexer)                  | See `apps/indexer/.env.example`                                                                                           |
+| `MEDIA_BLOCKLIST`                      | Railway (indexer)                  | Image ids `/media` refuses (451), comma-separated: takedowns. The bytes stay on-chain; the app stops serving them         |
 
 Scope the relayer keys and `DATABASE_URL` to Production. A preview deployment runs a branch's code: give previews
 their own relayer and database, or none.
@@ -245,7 +286,7 @@ Three things have to agree for a sponsored action to go through:
   move funds. Sign-ups through Parallax add it. An Account made elsewhere gets it from Settings → "Let Parallax pay",
   which the user's wallet sends (`addAccountManager`) and pays for once. Users can revoke it any time.
 - **The app** holds the relayer keys, and narrows what it relays to what its client sends (`sponsor.ts`): posts
-  without rules, deletes, follows, blocks and profile edits. Sign-ups don't go through the router: the relayer calls
+  without rules, deletes, follows, blocks, profile edits, and chunks of images within the app's 120 KB. Sign-ups don't go through the router: the relayer calls
   `LensFactory.createAccountWithUsernameFree` itself.
 
 Until the Safe runs `ActivateLaunch` (`lens-monad-protocol`), the launch's gates keep everyone but the Safe from
@@ -330,8 +371,8 @@ RELAYER_PRIVATE_KEYS=0x7c852118294e51e653712a81e05800f419141751be58f605c371e1514
 - **Relayer balances.** Consensus on Monad runs ahead of execution, so it only includes a sender's transaction while
   the gas of its transactions from the last 3 blocks (~1.2s) stays under its
   [reserve balance](https://docs.monad.xyz/developer-essentials/reserve-balance): 10 MON, or the sender's balance if
-  lower. At ~102 gwei, an action costs at most ~0.15 MON (a sign-up ~0.31), so a relayer at 10 MON or more can have
-  60+ actions in flight per 1.2s, far above what one key sends, and one at `RELAYER_MIN_BALANCE_MON` (5) half that. It
+  lower. At ~102 gwei, an action costs at most ~0.15 MON (a sign-up ~0.31, a 64 KB image chunk ~0.3), so a relayer at
+  10 MON or more can have 30+ actions in flight per 1.2s, above what one key sends, and one at `RELAYER_MIN_BALANCE_MON` (5) half that. It
   only limits a relayer that's nearly empty, whose transactions are then left out and stall like a stuck one: keep
   relayers funded, and alert on `/api/health`.
 - **Lost broadcasts.** If the RPC accepts a transaction but its answer is lost (a timeout), the action is reported as
@@ -339,6 +380,12 @@ RELAYER_PRIVATE_KEYS=0x7c852118294e51e653712a81e05800f419141751be58f605c371e1514
 - **Pausing isn't instant.** `RELAY_PAUSED` takes a redeploy on Vercel (about a minute); `setRelayer(…, false)` from
   the Safe is immediate.
 - **Source stamps.** Posts don't carry the reference App's source stamp yet, so they aren't attributed to an app.
-- **Media.** Text only: images need a storage service.
+- **Images are permanent.** Whatever is uploaded stays in the chain's history for good: deleting the post hides it,
+  but the bytes remain. `MEDIA_BLOCKLIST` is the only way to stop serving one, so have a takedown process (and a
+  route for illegal content reports) before opening images to everyone.
+- **Image storage.** The indexer's Postgres holds every image (up to 1 MB each, `MAX_MEDIA_BYTES`; the app posts 120
+  KB). Rebuilding it reindexes the logs, so the RPC must serve old blocks' logs: Monad full nodes keep all
+  transactional history, older data on an archive the RPC provider runs
+  ([historical data](https://docs.monad.xyz/developer-essentials/historical-data)). Check your provider's.
 - **Finality.** The app shows the result once the indexer saw the block. Monad's `latest` is a proposed block: anything
   that moves value should wait for `finalized`.

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Starts a local Monad node and deploys Lens to it from the contracts repository, as its README describes:
 # DeployMonad (the protocol), then DeployLaunch (the "lens" Namespace, the App and the SponsorRouter, with anvil's
-# 4th account as relayer), then ActivateLaunch (opens the launch's preload gates). Then syncs the ABIs and the address book into packages/protocol.
+# 4th account as relayer), then ActivateLaunch (opens the launch's preload gates). Then syncs the ABIs and the address book into packages/protocol,
+# and deploys Parallax's MediaStore (scripts/deploy-media-store.ts).
 #
 # Needs Foundry 1.8.0 or later (`anvil --network monad`), and LENS_CONTRACTS_DIR pointing at a built checkout of
 # lens-monad-protocol (default ../lens-monad-protocol). Addresses are deterministic on a fresh node.
@@ -40,6 +41,8 @@ until cast chain-id --rpc-url "$RPC" >/dev/null 2>&1; do sleep 0.2; done
 )
 
 LENS_CONTRACTS_DIR="$CONTRACTS" node "$ROOT/scripts/sync-contracts.mjs"
+# Parallax's own MediaStore, for images, and the router's permission to pay for it.
+(cd "$ROOT" && node --import tsx scripts/deploy-media-store.ts)
 # The node is new, so whatever the indexer stored is from another chain: start over (restart `pnpm indexer`).
 rm -rf "$ROOT/apps/indexer/.ponder"
 

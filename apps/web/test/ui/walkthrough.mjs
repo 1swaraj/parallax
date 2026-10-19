@@ -77,6 +77,11 @@ await step('landing, signed out', async () => {
 });
 
 await step('sign in with the browser wallet', async () => {
+  // Passkeys come first; wallets are a click away.
+  const wallets = page.getByRole('button', { name: 'Use a wallet instead' });
+  if (await wallets.isVisible()) {
+    await wallets.click();
+  }
   await page.getByRole('button', { name: /continue with browser wallet/i }).click();
   await page.getByRole('dialog', { name: 'Sign in' }).waitFor();
   await shot('02-sign-in');
@@ -124,6 +129,37 @@ await step('open the thread', async () => {
   await page.getByRole('heading', { name: 'Post' }).waitFor();
   await page.getByText('Replying to myself.').waitFor({ timeout: 15000 });
   await shot('07-thread');
+});
+
+await step('post an image', async () => {
+  // A screenshot of the page makes a realistic picture to post: the app resizes and re-encodes it.
+  const picture = await page.screenshot();
+  await page.getByRole('link', { name: 'Home' }).first().click();
+  await page.getByRole('textbox', { name: "What's new?" }).fill('An image, stored on Monad');
+  await page.locator('input[type=file]').first().setInputFiles({
+    name: 'screenshot.png',
+    mimeType: 'image/png',
+    buffer: picture,
+  });
+  await page.getByRole('img', { name: 'The image to post' }).waitFor();
+  await page.getByRole('textbox', { name: 'Image description' }).fill('The Parallax timeline');
+  await shot('07a-image-composer');
+  await page.getByRole('button', { name: 'Post', exact: true }).click();
+  // The composer empties once the chunks and the post are in; then the post shows in the feed.
+  await page.getByRole('img', { name: 'The Parallax timeline' }).first().waitFor();
+  await page
+    .getByRole('textbox', { name: 'Image description' })
+    .waitFor({ state: 'detached', timeout: 60000 });
+  const posted = page
+    .locator('article')
+    .getByRole('img', { name: 'The Parallax timeline' })
+    .first();
+  await posted.waitFor({ timeout: 15000 });
+  await page.waitForFunction((img) => img.complete, await posted.elementHandle());
+  if (!(await posted.evaluate((img) => img.complete && img.naturalWidth > 0))) {
+    throw new Error("The posted image didn't load");
+  }
+  await shot('07b-image-posted');
 });
 
 await step('follow someone from Explore', async () => {

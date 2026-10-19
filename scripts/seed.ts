@@ -1,11 +1,18 @@
 // Seeds a local chain with realistic people and conversations, for demos and screenshots: accounts with names,
-// bios and pictures, posts, threads, quotes, reposts and a follow graph, through the same contracts and relayer the
-// app uses, with block timestamps spread over the last few days. Then, if the app is running, likes through its API.
+// bios and pictures, posts with and without photos, threads, quotes, reposts and a follow graph, through the same
+// contracts and relayer the app uses, with block timestamps spread over the last few days. Then, if the app is
+// running, likes through its API.
 //
 //   pnpm chain            # deploys, then seeds the chain (SEED=0 to skip)
 //   pnpm seed:likes       # once the indexer and the app run: likes, through the app's API
 //
-// Fake people don't belong on a public network: this refuses any chain but 31337 unless SEED_ALLOW_REMOTE=1.
+// Fake people don't belong on a public network: this refuses any chain but 31337 unless SEED_ALLOW_REMOTE=1. There,
+// e.g. a testnet demo, it needs SEED_MNEMONIC (the people's wallets: anvil's is public, anyone could act for them) and
+// SEED_PRIVATE_KEY, a funded key that pays for everything: it's made a manager of each Account, which acts through
+// Account.executeTransaction, as no relayer may be allowlisted. Posts can't be backdated there, and APP_URL is where
+// the photos are served from.
+//
+//   SEED_ALLOW_REMOTE=1 RPC_URL=… APP_URL=… SEED_MNEMONIC="…" SEED_PRIVATE_KEY=0x… pnpm seed
 
 import {
   accountFactoryAbi,
@@ -15,14 +22,23 @@ import {
   feedAbi,
   follow,
   getDeployment,
+  getMediaStore,
+  imagePost,
   lensFactoryAbi,
+  MAX_IMAGE_BYTES,
+  mediaId,
+  mediaPath,
   monadLocal,
+  accountAbi,
   namespaceAbi,
+  putMedia,
   repost,
+  sniffImageType,
   sponsorRouterAbi,
   textOnlyPost,
   toDataURI,
   type AccountCall,
+  type Deployment,
   type PostReference,
 } from '../packages/protocol/src';
 import fs from 'node:fs';
@@ -31,6 +47,7 @@ import {
   createPublicClient,
   createWalletClient,
   http,
+  nonceManager,
   parseEventLogs,
   zeroAddress,
   type Address,
@@ -45,7 +62,8 @@ const APP = process.env.APP_URL ?? 'http://localhost:3000';
 const RELAYER_KEY = (process.env.RELAYER_PRIVATE_KEY ??
   '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6') as Hex;
 // Owners derive from anvil's public mnemonic, at indexes no other tool uses: local data only.
-const MNEMONIC = 'test test test test test test test test test test test junk';
+const LOCAL_MNEMONIC = 'test test test test test test test test test test test junk';
+const MNEMONIC = process.env.SEED_MNEMONIC ?? LOCAL_MNEMONIC;
 
 type Person = { username: string; name: string; bio: string; picture?: string };
 
@@ -138,8 +156,11 @@ const PEOPLE: Person[] = [
   },
 ];
 
+/** A photo from picsum.photos (by its seed, so it's always the same one), and what it shows. */
+type Photo = { seed: string; alt: string };
+
 type Step =
-  | { at: number; post: string; by: string; text: string }
+  | { at: number; post: string; by: string; text: string; photo?: Photo }
   | { at: number; reply: string; to: string; by: string; text: string }
   | { at: number; quote: string; of: string; by: string; text: string }
   | { at: number; repost: string; by: string }
@@ -260,6 +281,16 @@ const SCRIPT: Step[] = [
     by: 'sofiawrites',
     text: 'Moved my Lens account over and my followers came with me. That was always the pitch of Lens, and it finally clicked for me this week. #lens',
   },
+  {
+    at: 67,
+    post: 'emma-walk',
+    by: 'emmalarsen',
+    text: 'Took the long way to the office this morning. Some buildings make you look up.',
+    photo: {
+      seed: 'parallax-art-1',
+      alt: 'Looking up at a domed baroque building with a gold spire, against a cloudy sky.',
+    },
+  },
   { at: 66, repost: 'sofia-lens', by: 'julesmartin' },
   {
     at: 64,
@@ -298,6 +329,16 @@ const SCRIPT: Step[] = [
     post: 'omar-payments',
     by: 'omarbuilds',
     text: 'We settled 10,000 test payments in an afternoon on testnet. Merchants care about two things: it arrived, and it cost nothing. Both checked. Mainnet next. #monad',
+  },
+  {
+    at: 42,
+    post: 'jules-lake',
+    by: 'julesmartin',
+    text: 'Logged off for the weekend. Back Monday.',
+    photo: {
+      seed: 'parallax-meetup',
+      alt: 'A snow-capped mountain under a starry violet sky, mirrored in a still lake.',
+    },
   },
   {
     at: 47,
@@ -367,6 +408,16 @@ const SCRIPT: Step[] = [
     text: 'Shipped the new swap screen: every interaction under 100ms, no spinners on confirmation. Fast blocks make optimistic UI feel boring, in a good way. #buildinpublic',
   },
   {
+    at: 14,
+    post: 'maya-outside',
+    by: 'maya_builds',
+    text: 'Shipped the new swap flow, then went outside for once.',
+    photo: {
+      seed: 'parallax-art-2',
+      alt: 'A dark pine forest at dusk under an orange sky, with a grassy clearing in front.',
+    },
+  },
+  {
     at: 17,
     reply: 'tom-swap',
     to: 'maya-swap',
@@ -426,6 +477,16 @@ const SCRIPT: Step[] = [
     text: "This week's newsletter: what crypto apps can learn from the first five minutes of using Parallax. Spoiler: fewer steps than most web2 sign-ups.",
   },
   {
+    at: 1.2,
+    post: 'sofia-beach',
+    by: 'sofiawrites',
+    text: "Writing from the beach today. This week's newsletter goes out tonight.",
+    photo: {
+      seed: 'parallax-gm',
+      alt: 'A wide, hazy beach at low tide, with people walking between tide pools.',
+    },
+  },
+  {
     at: 0.6,
     post: 'tom-gm',
     by: 'tombecker',
@@ -451,19 +512,29 @@ const LIKES: [string, string[]][] = [
   ['chaindaily', ['kenji-oss', 'nadia-live', 'ana-recap', 'omar-payments']],
 ];
 
-const { contracts } = getDeployment(monadLocal.id);
-const publicClient = createPublicClient({
-  chain: monadLocal,
-  transport: http(RPC),
-  pollingInterval: 100,
-});
-const relayer = createWalletClient({
-  chain: monadLocal,
+const publicClient = createPublicClient({ transport: http(RPC), pollingInterval: 100 });
+
+/** Set by main: the chain's, whether it's the local one, and who sends (the relayer, or SEED_PRIVATE_KEY). */
+let chainId: number = monadLocal.id;
+let isLocal = true;
+let contracts: Deployment['contracts'];
+let sender = createWalletClient({
   transport: http(RPC),
   account: privateKeyToAccount(RELAYER_KEY),
 });
 
+/** What SEED_PRIVATE_KEY may do for the Accounts away from the local chain: act, nothing that moves funds. */
+const SEEDER_PERMISSIONS = {
+  canExecuteTransactions: true,
+  canTransferTokens: false,
+  canTransferNative: false,
+  canSetMetadataURI: false,
+} as const;
+
 async function at(hoursAgo: number) {
+  if (!isLocal) {
+    return;
+  }
   const target = BigInt(Math.floor(Date.now() / 1000 - hoursAgo * 3600));
   const latest = await publicClient.getBlock();
   if (target > latest.timestamp) {
@@ -474,8 +545,9 @@ async function at(hoursAgo: number) {
   }
 }
 
-async function send(request: Parameters<typeof relayer.writeContract>[0]) {
-  const hash = await relayer.writeContract(request);
+async function send(request: Parameters<typeof sender.writeContract>[0]) {
+  // The chain is whatever RPC_URL serves.
+  const hash = await sender.writeContract({ ...request, chain: null } as never);
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   if (receipt.status !== 'success') {
     throw new Error(`Transaction ${hash} reverted`);
@@ -511,19 +583,27 @@ async function signUp(person: Person, index: number) {
     accounts.set(person.username, existing);
     return false;
   }
+  const [namespace, params, username] = createAccountWithUsernameArgs({
+    namespace: contracts.LensGlobalNamespace,
+    owner: owner.address,
+    username: person.username,
+    metadataURI: toDataURI(
+      accountMetadata({ name: person.name, bio: person.bio, picture: person.picture })
+    ),
+    sponsorRouter: contracts.SponsorRouter,
+  });
+  // Away from the local chain, the seeding key acts for the Account too (see the top).
+  const managers = isLocal
+    ? {}
+    : {
+        accountManagers: [...params.accountManagers, sender.account.address],
+        accountManagersPermissions: [...params.accountManagersPermissions, SEEDER_PERMISSIONS],
+      };
   const receipt = await send({
     address: contracts.LensFactory,
     abi: lensFactoryAbi,
     functionName: 'createAccountWithUsernameFree',
-    args: createAccountWithUsernameArgs({
-      namespace: contracts.LensGlobalNamespace,
-      owner: owner.address,
-      username: person.username,
-      metadataURI: toDataURI(
-        accountMetadata({ name: person.name, bio: person.bio, picture: person.picture })
-      ),
-      sponsorRouter: contracts.SponsorRouter,
-    }),
+    args: [namespace, { ...params, ...managers }, username],
   } as never);
   const [created] = parseEventLogs({
     abi: accountFactoryAbi,
@@ -539,12 +619,21 @@ async function act(username: string, call: AccountCall) {
   if (!account) {
     throw new Error(`Unknown person ${username}`);
   }
-  const receipt = await send({
-    address: contracts.SponsorRouter,
-    abi: sponsorRouterAbi,
-    functionName: 'execute',
-    args: [account, call.target, call.data],
-  } as never);
+  const receipt = await send(
+    (isLocal
+      ? {
+          address: contracts.SponsorRouter,
+          abi: sponsorRouterAbi,
+          functionName: 'execute',
+          args: [account, call.target, call.data],
+        }
+      : {
+          address: account,
+          abi: accountAbi,
+          functionName: 'executeTransaction',
+          args: [call.target, 0n, call.data],
+        }) as never
+  );
   const [event] = parseEventLogs({
     abi: feedAbi,
     eventName: 'Lens_Feed_PostCreated',
@@ -568,6 +657,43 @@ async function writePost(key: string, by: string, text: string, reference?: Post
     createPost(contracts.LensGlobalFeed, account, toDataURI(textOnlyPost(text)), reference)
   );
   posts.set(key, id!);
+}
+
+const PHOTO_WIDTH = 1024;
+const PHOTO_HEIGHT = 768;
+
+/**
+ * A post with a photo, stored in MediaStore like the app's. Text only when the chain has no MediaStore, or the photo
+ * can't be fetched or is over the app's size.
+ */
+async function writePhotoPost(key: string, by: string, text: string, photo: Photo) {
+  const store = getMediaStore(chainId);
+  const response = await fetch(
+    `https://picsum.photos/seed/${photo.seed}/${PHOTO_WIDTH}/${PHOTO_HEIGHT}.webp`
+  ).catch(() => null);
+  const bytes = response?.ok ? new Uint8Array(await response.arrayBuffer()) : null;
+  const type = bytes ? sniffImageType(bytes) : null;
+  if (!store || !bytes || !type || bytes.length > MAX_IMAGE_BYTES) {
+    console.warn(`No photo for ${key}: posting its text only`);
+    return writePost(key, by, text);
+  }
+  const account = accounts.get(by)!;
+  const id = await mediaId(bytes);
+  for (const call of putMedia(store.address, id, bytes)) {
+    await act(by, call);
+  }
+  const metadata = imagePost(text, {
+    item: new URL(mediaPath(account, id), APP).toString(),
+    type,
+    width: PHOTO_WIDTH,
+    height: PHOTO_HEIGHT,
+    alt: photo.alt,
+    locator: { chainId, store: store.address, author: account, id },
+  });
+  posts.set(
+    key,
+    (await act(by, createPost(contracts.LensGlobalFeed, account, toDataURI(metadata))))!
+  );
 }
 
 /** Signs in to the app as a seeded person (SIWE), and likes posts through its API. */
@@ -612,6 +738,7 @@ async function like(username: string, keys: string[]) {
 }
 
 async function seedLikes() {
+  contracts = getDeployment(chainId).contracts;
   const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8')) as Record<string, string>;
   for (const [key, id] of Object.entries(state)) {
     posts.set(key, BigInt(id));
@@ -640,14 +767,29 @@ async function main() {
   if (process.argv.includes('--likes')) {
     return seedLikes();
   }
-  const chainId = await publicClient.getChainId();
-  if (chainId !== monadLocal.id && process.env.SEED_ALLOW_REMOTE !== '1') {
+  chainId = await publicClient.getChainId();
+  isLocal = chainId === monadLocal.id;
+  if (!isLocal && process.env.SEED_ALLOW_REMOTE !== '1') {
     throw new Error(`Chain ${chainId} isn't local. Fake people don't belong on a public network.`);
+  }
+  contracts = getDeployment(chainId).contracts;
+  if (!isLocal) {
+    const key = process.env.SEED_PRIVATE_KEY as Hex | undefined;
+    if (!key || !process.env.SEED_MNEMONIC || MNEMONIC === LOCAL_MNEMONIC) {
+      throw new Error(
+        "Seeding another chain needs SEED_PRIVATE_KEY and SEED_MNEMONIC (not anvil's: it's public)"
+      );
+    }
+    // Monad's `pending` nonce is the `latest` one, and the RPC can lag the receipts: count nonces here.
+    sender = createWalletClient({
+      transport: http(RPC),
+      account: privateKeyToAccount(key, { nonceManager }),
+    });
   }
   const first = SCRIPT[0]!.at;
   const latest = await publicClient.getBlock();
   const backdated = Number(latest.timestamp) < Date.now() / 1000 - first * 3600;
-  if (!backdated) {
+  if (isLocal && !backdated) {
     console.warn(
       'The chain clock is too recent to backdate posts: they will all look new. Restart it with `pnpm chain`.'
     );
@@ -676,7 +818,9 @@ async function main() {
         }
       }
     } else if ('post' in step) {
-      await writePost(step.post, step.by, step.text);
+      await (step.photo
+        ? writePhotoPost(step.post, step.by, step.text, step.photo)
+        : writePost(step.post, step.by, step.text));
     } else if ('reply' in step) {
       await writePost(step.reply, step.by, step.text, { kind: 'reply', postId: postId(step.to) });
     } else if ('quote' in step) {
@@ -689,6 +833,9 @@ async function main() {
     }
   }
   console.log(`${posts.size} posts and replies written`);
+  if (!isLocal) {
+    return;
+  }
   fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
   fs.writeFileSync(
     STATE_FILE,

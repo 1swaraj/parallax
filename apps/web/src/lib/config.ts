@@ -1,4 +1,4 @@
-import { getChain, getDeployment } from '@lens-monad/protocol';
+import { getChain, getDeployment, getMediaStore } from '@lens-monad/protocol';
 import { defineChain, type Chain } from 'viem';
 
 export const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 31337);
@@ -27,6 +27,8 @@ export function explorerAddressUrl(address: string) {
 
 export const deployment = getDeployment(CHAIN_ID);
 export const contracts = deployment.contracts;
+/** Where post images are stored, or null on chains MediaStore isn't deployed on: images are off there. */
+export const mediaStore = getMediaStore(CHAIN_ID);
 
 /** X's limit. It also bounds what the relayer pays per post: the text is stored on-chain. */
 export const MAX_POST_CHARACTERS = 280;

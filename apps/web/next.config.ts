@@ -39,9 +39,13 @@ const config: NextConfig = {
   // `next dev` only: other hosts that may load the dev server's resources (hot reload), e.g. a tunnel's or a preview
   // URL's host. Comma-separated.
   allowedDevOrigins: process.env.ALLOWED_DEV_ORIGINS?.split(',').filter(Boolean),
-  // The browser reads the indexer through the app's origin, so the indexer needs no CORS.
+  // The browser reads the indexer through the app's origin, so the indexer needs no CORS. Post images are at /media
+  // on the app's origin: the URL their Lens metadata gives other apps.
   async rewrites() {
-    return [{ source: '/indexer/:path*', destination: `${indexerUrl}/:path*` }];
+    return [
+      { source: '/indexer/:path*', destination: `${indexerUrl}/:path*` },
+      { source: '/media/:path*', destination: `${indexerUrl}/media/:path*` },
+    ];
   },
   async headers() {
     return [{ source: '/:path*', headers: SECURITY_HEADERS }];
