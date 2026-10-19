@@ -3,7 +3,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useLensActions } from '@/lib/actions';
-import { APP_NAME } from '@/lib/brand';
+import { useBrand } from '@/lib/runtime-config';
 import { MAX_BIO_CHARACTERS, MAX_NAME_CHARACTERS } from '@/lib/config';
 import { useProfile } from '@/lib/indexer';
 import { useSession } from '@/lib/session';
@@ -14,6 +14,7 @@ import { Button, Modal, ProgressBar, Spinner } from './ui';
 
 /** "Edit profile": Save in the title row, the avatar preview, then the fields. */
 export function EditProfile({ onClose }: { onClose: () => void }) {
+  const { APP_NAME } = useBrand();
   const { account } = useSession();
   const { data } = useProfile(account, null);
   const { updateProfile, sponsored } = useLensActions();

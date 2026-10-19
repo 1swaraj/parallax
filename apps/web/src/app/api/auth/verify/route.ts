@@ -42,7 +42,8 @@ export async function POST(request: Request) {
       await session.save();
       throw new HttpError(401, 'Invalid signature');
     }
-    const accounts = await accountsOwnedBy(fields.address);
+    // Wallet authentication must remain available when the indexer is down, so operators can repair its config.
+    const accounts = await accountsOwnedBy(fields.address).catch(() => []);
     session.owner = fields.address;
     session.account = accounts[0];
     await session.save();

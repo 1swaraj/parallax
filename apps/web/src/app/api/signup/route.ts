@@ -5,8 +5,9 @@ import {
   usernameError,
 } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
+import { database } from '@/lib/server/db';
 import { isAddressEqual, parseEventLogs, type Address, type Log } from 'viem';
-import { contracts } from '@/lib/config';
+import { runtimeContracts as contracts } from '@/lib/server/contracts';
 import { sendAsRelayer } from '@/lib/server/chain';
 import { maxGasPerSignUp, numberEnv } from '@/lib/server/env';
 import {
@@ -85,6 +86,9 @@ export async function POST(request: Request) {
     );
     session.account = createdAccount(logs);
     await session.save();
+    const sql = database();
+    if (sql)
+      await sql`INSERT INTO lens_web.signups (account) VALUES (${session.account.toLowerCase()}) ON CONFLICT DO NOTHING`;
     return NextResponse.json({
       account: session.account,
       hash,

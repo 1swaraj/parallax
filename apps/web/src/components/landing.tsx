@@ -1,7 +1,7 @@
 'use client';
 
 import { useConnection } from 'wagmi';
-import { APP_TAGLINE } from '@/lib/brand';
+import { useBrand } from '@/lib/runtime-config';
 import { useSession } from '@/lib/session';
 import { SignInOptions, SignOutButton } from './auth';
 import { FooterLinks } from './footer-links';
@@ -14,6 +14,7 @@ import { Button } from './ui';
  * (SignInOptions). Once connected, the sign-in flow takes over: one signature, then a username for a new account.
  */
 export function Landing() {
+  const { APP_TAGLINE } = useBrand();
   const { owner, account } = useSession();
   const { isConnected } = useConnection();
   const openAuth = useAuthModal();

@@ -14,8 +14,9 @@ import {
   type Log,
 } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
-import { APP_NAME } from '../brand';
-import { chain, contracts, IS_LOCAL } from '../config';
+import { currentConfig } from '@/lib/server/instance-config';
+import { chain, IS_LOCAL } from '../config';
+import { runtimeContracts as contracts } from './contracts';
 import { serverRpcUrl } from './env';
 import { HttpError } from './guard';
 import { nonceError, sendWithNonce } from './nonces';
@@ -24,7 +25,21 @@ import { reserveGas, serverState, settleGas } from './state';
 
 export const publicClient = createPublicClient({
   chain,
-  transport: http(serverRpcUrl(), { timeout: 10_000 }),
+  transport: (options) => {
+    let rpc = serverRpcUrl();
+    let active = http(rpc, { timeout: 10_000 })(options);
+    return {
+      ...active,
+      request: (args, requestOptions) => {
+        const next = serverRpcUrl();
+        if (next !== rpc) {
+          rpc = next;
+          active = http(rpc, { timeout: 10_000 })(options);
+        }
+        return active.request(args, requestOptions) as never;
+      },
+    };
+  },
   pollingInterval: IS_LOCAL ? 250 : 400,
 });
 
@@ -60,7 +75,7 @@ export async function sendAsRelayer<
   actor: Address,
   maxGas: bigint
 ): Promise<{ hash: Hex; blockNumber: bigint; logs: Log[] }> {
-  const relayer = relayerFor(actor);
+  const relayer = await relayerFor(actor);
   // Callers' calls are checked against the ABI above; viem's generic types don't narrow through the helper.
   const params = { ...call, account: relayer } as never;
   try {
@@ -74,7 +89,7 @@ export async function sendAsRelayer<
   if (gas > maxGas) {
     throw new HttpError(
       400,
-      `This action costs more than ${APP_NAME} pays for. Pay its fee from your wallet (Settings).`
+      `This action costs more than ${currentConfig().appName} pays for. Pay its fee from your wallet (Settings).`
     );
   }
   const fees = await publicClient.estimateFeesPerGas({ chain: feeChain });
@@ -141,7 +156,7 @@ async function assertRelayerAllowed(target: Address, relayer: PrivateKeyAccount,
     console.error(`Relayer ${relayer.address} isn't allowlisted on the SponsorRouter`);
     throw new HttpError(
       503,
-      `${APP_NAME} can't pay network fees right now. Try again soon, or pay from your wallet (Settings).`
+      `${currentConfig().appName} can't pay network fees right now. Try again soon, or pay from your wallet (Settings).`
     );
   }
 }

@@ -1,4 +1,5 @@
 'use client';
+import { EmailSettings } from '@/components/email-settings';
 
 import { useMutation } from '@tanstack/react-query';
 import { useConnection, useDisconnect } from 'wagmi';
@@ -10,8 +11,8 @@ import { useTheme, type Theme } from '@/components/theme';
 import { useToast } from '@/components/toast';
 import { Button, CornerBrackets, PageHeader } from '@/components/ui';
 import { useGasMode, useLensActions, useSponsorship, type GasMode } from '@/lib/actions';
-import { APP_NAME } from '@/lib/brand';
-import { chain, contracts, EXPLORER_URL, explorerAddressUrl } from '@/lib/config';
+import { useBrand } from '@/lib/runtime-config';
+import { useNetwork } from '@/lib/runtime-config';
 import { useProfile } from '@/lib/indexer';
 import { useSession } from '@/lib/session';
 import { usePageTitle } from '@/lib/title';
@@ -142,12 +143,13 @@ function AccountSection() {
 }
 
 function FeesSection() {
+  const { APP_NAME } = useBrand();
   const { account } = useSession();
   const { data } = useProfile(account, null);
   const [mode, setMode] = useGasMode();
   const available = useSponsorship();
   const { isConnected } = useConnection();
-  const { enableSponsorship } = useLensActions();
+  const { enableSponsorship, sponsorshipAllowed } = useLensActions();
   const toast = useToast();
   const enable = useMutation({
     mutationFn: enableSponsorship,
@@ -187,7 +189,7 @@ function FeesSection() {
           </SelectionCard>
         ))}
       </div>
-      {(mode === 'direct' || (data && !data.account.sponsored)) && !isConnected && (
+      {(mode === 'direct' || sponsorshipAllowed === false) && !isConnected && (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-border-default bg-bg-elevated px-4 py-3">
           <p className="text-sm text-text-secondary">
             Connect the wallet that owns this account to pay from it.
@@ -195,7 +197,7 @@ function FeesSection() {
           <ConnectWalletButton />
         </div>
       )}
-      {data && !data.account.sponsored && (
+      {sponsorshipAllowed === false && (
         <div className="relative mt-4 flex flex-wrap items-center justify-between gap-3 bg-status-info-bg py-3 pr-4 pl-4">
           <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-status-info" />
           <p className="text-sm text-text-primary">
@@ -252,6 +254,8 @@ function SpecRow({ topic, value, href }: { topic: string; value: string; href?: 
 }
 
 export default function SettingsPage() {
+  const { chain, contracts, EXPLORER_URL, explorerAddressUrl } = useNetwork();
+  const { APP_NAME } = useBrand();
   const { owner, account } = useSession();
   const [theme, setTheme] = useTheme();
   const openAuth = useAuthModal();
@@ -290,6 +294,7 @@ export default function SettingsPage() {
         />
       </Section>
       {account && <FeesSection />}
+      <EmailSettings />
       <Section
         title="Network"
         description={`${APP_NAME} reads and writes Lens Protocol V3 contracts on ${chain.name}. Any Lens app can read the same data.`}

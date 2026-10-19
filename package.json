@@ -20,7 +20,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "seed": "node --import tsx scripts/seed.ts",
-    "seed:likes": "node --import tsx scripts/seed.ts --likes"
+    "seed:likes": "node --import tsx scripts/seed.ts --likes",
+    "admin:reset-owner": "pnpm --filter @lens-monad/web admin:reset-owner"
   },
   "devDependencies": {
     "prettier": "^3.6.0",

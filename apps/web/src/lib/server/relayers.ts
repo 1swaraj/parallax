@@ -1,13 +1,14 @@
 import { hexToBigInt, keccak256, type Address } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
-import { relayerKeys } from './env';
+import { parseRelayerKeys, relayerKeys } from './env';
 
-let accounts: PrivateKeyAccount[] | undefined;
+import { getSecret } from './secrets';
 
 /** The relayers, in RELAYER_PRIVATE_KEYS order. */
-export function relayers(): PrivateKeyAccount[] {
-  accounts ??= relayerKeys().map((key) => privateKeyToAccount(key));
-  return accounts;
+export async function relayers(): Promise<PrivateKeyAccount[]> {
+  const stored = await getSecret('relayerPrivateKeys');
+  const keys = stored ? parseRelayerKeys(stored) : relayerKeys();
+  return keys.map((key) => privateKeyToAccount(key));
 }
 
 /**
@@ -22,7 +23,7 @@ export function relayerIndex(actor: Address, count: number): number {
  * The relayer that sends for a Lens Account (or, for sign-ups, the owner). Always the same one, so an Account's
  * actions go out in order, from one nonce sequence.
  */
-export function relayerFor(actor: Address): PrivateKeyAccount {
-  const all = relayers();
+export async function relayerFor(actor: Address): Promise<PrivateKeyAccount> {
+  const all = await relayers();
   return all[relayerIndex(actor, all.length)]!;
 }

@@ -3,6 +3,7 @@ import { isAddress, type Address } from 'viem';
 import { accountsOwnedBy } from '@/lib/server/accounts';
 import { isOwnedBy } from '@/lib/server/chain';
 import { assertSameOrigin, handle, HttpError } from '@/lib/server/guard';
+import { recordDirectSignup } from '@/lib/server/signups';
 import { getSession } from '@/lib/server/session';
 
 export async function GET() {
@@ -28,7 +29,7 @@ export async function PUT(request: Request) {
   return handle(async () => {
     assertSameOrigin(request);
     const session = await getSession();
-    const { account } = (await request.json()) as { account?: string };
+    const { account, signup } = (await request.json()) as { account?: string; signup?: boolean };
     if (!session.owner) {
       throw new HttpError(401, 'Sign in first');
     }
@@ -37,6 +38,10 @@ export async function PUT(request: Request) {
     }
     session.account = account as Address;
     await session.save();
+    if (signup === true)
+      await recordDirectSignup(session.account).catch(() =>
+        console.error('Could not record wallet-paid signup statistics')
+      );
     return NextResponse.json({
       owner: session.owner,
       account: session.account,

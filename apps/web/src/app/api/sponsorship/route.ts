@@ -13,7 +13,7 @@ const MIN_RELAYER_BALANCE = parseEther('1');
  * funded. When it doesn't, the client sends actions from the user's wallet instead of having them refused.
  */
 export async function GET() {
-  let available = isSponsorshipAvailable();
+  let available = await isSponsorshipAvailable();
   if (available) {
     const { relayers } = await checkHealth();
     available =

@@ -27,18 +27,18 @@
   --text-secondary: #565666;
   --text-tertiary: #727285;
   --text-disabled: #aaaabf;
-  --text-accent: #6e54ff;
+  --text-accent: var(--instance-accent, #6e54ff);
   --text-inverse: #ffffff;
   --text-on-accent: #ffffff;
 
   --border-default: #e9e9f5;
   --border-hover: #dadae8;
   --border-strong: #aaaabf;
-  --border-focus: #6e54ff;
+  --border-focus: var(--instance-accent, #6e54ff);
 
-  --accent-primary: #6e54ff;
-  --accent-hover: #5740d6;
-  --accent-pressed: #4230aa;
+  --accent-primary: var(--instance-accent, #6e54ff);
+  --accent-hover: color-mix(in srgb, var(--accent-primary) 80%, black);
+  --accent-pressed: color-mix(in srgb, var(--accent-primary) 65%, black);
   --accent-subtle: #f0eeff;
 
   --status-success-fg: #15803d;
@@ -55,24 +55,24 @@
 
   /* Buttons: fixed fills with crossfading radial washes. */
   --button-shadow-ambient: rgba(0, 0, 0, 0.2);
-  --button-primary-bg: #6e54ff;
+  --button-primary-bg: var(--accent-primary);
   --button-primary-text: #ffffff;
-  --button-primary-pressed: #4230aa;
+  --button-primary-pressed: var(--accent-pressed);
   --button-primary-border: #4f47ebe6;
   --button-primary-border-hover: #4f47eb80;
   --button-primary-highlight: #ffffff40;
   --button-primary-highlight-hover: #ffffffcc;
   --button-primary-gradient: radial-gradient(
     ellipse 50% 50% at 50% 50%,
-    rgba(110, 84, 255, 0) 0%,
+    transparent 0%,
     rgba(255, 255, 255, 0.12) 100%
   );
   --button-primary-gradient-hover: radial-gradient(
     ellipse 50% 50% at 50% 50%,
-    rgba(110, 84, 255, 1) 29.808%,
-    rgba(146, 127, 255, 0.9375) 47.356%,
-    rgba(183, 170, 255, 0.875) 64.904%,
-    rgba(219, 212, 255, 0.8125) 82.452%,
+    var(--accent-primary) 29.808%,
+    color-mix(in srgb, var(--accent-primary) 75%, white) 47.356%,
+    color-mix(in srgb, var(--accent-primary) 50%, white) 64.904%,
+    color-mix(in srgb, var(--accent-primary) 25%, white) 82.452%,
     rgba(255, 255, 255, 0.75) 100%
   );
   --button-primary-shadow:
@@ -132,6 +132,8 @@
 }
 
 .dark {
+  --accent-primary: var(--instance-accent-dark, #9f8fff);
+  --brand-purple: var(--instance-accent-dark, #9f8fff);
   --bg-default: #000000;
   --bg-subtle: #0f0f12;
   --bg-elevated: #16161a;
@@ -143,13 +145,13 @@
   --text-secondary: #c7c7d6;
   --text-tertiary: #aaaabf;
   --text-disabled: #727285;
-  --text-accent: #8270ff;
+  --text-accent: var(--instance-accent-dark, #9f8fff);
   --text-inverse: #000000;
 
   --border-default: #26262b;
   --border-hover: #353542;
   --border-strong: #565666;
-  --border-focus: #8270ff;
+  --border-focus: var(--instance-accent-dark, #9f8fff);
 
   --accent-subtle: #1c1449;
 

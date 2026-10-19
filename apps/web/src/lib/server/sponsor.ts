@@ -16,8 +16,9 @@ import {
   type Address,
   type Hex,
 } from 'viem';
-import { APP_NAME } from '../brand';
-import { contracts, mediaStore } from '../config';
+import { currentConfig } from '@/lib/server/instance-config';
+import { mediaStore } from '../config';
+import { runtimeContracts as contracts } from './contracts';
 import { isOwnedBy, isSponsored, publicClient } from './chain';
 import { numberEnv } from './env';
 import { HttpError } from './guard';
@@ -39,7 +40,7 @@ export async function sponsoredAccount(session: SessionData): Promise<Address> {
   if (!(await isSponsored(account))) {
     throw new HttpError(
       403,
-      `This account doesn't let ${APP_NAME} pay its fees. Allow it in Settings.`
+      `This account doesn't let ${currentConfig().appName} pay its fees. Allow it in Settings.`
     );
   }
   await rateLimit(`relay:${account}`, numberEnv('RELAY_RATE_LIMIT_PER_MINUTE', 30), 60 * 1000);
@@ -87,14 +88,14 @@ export function assertSponsoredCall(target: Address, data: Hex): SponsoredCallKi
   const allowed = SPONSORED_CALLS.find((entry) => isAddressEqual(entry.target, target));
   const call = allowed ? decode(allowed.abi, data) : null;
   if (!allowed || !call || !allowed.functionNames.includes(call.functionName)) {
-    throw new HttpError(400, `${APP_NAME} can't pay the fee of that action`);
+    throw new HttpError(400, `${currentConfig().appName} can't pay the fee of that action`);
   }
   // Rule changes attach contracts of the caller's choosing to the post, which run on the relayer's gas. No other
   // sponsored function changes rules.
   if (call.functionName === 'createPost') {
     const [post] = call.args as readonly [{ ruleChanges: readonly unknown[]; contentURI: string }];
     if (post.ruleChanges.length > 0) {
-      throw new HttpError(400, `${APP_NAME} can't pay the fee of posts with rules`);
+      throw new HttpError(400, `${currentConfig().appName} can't pay the fee of posts with rules`);
     }
     return readPostImage(post.contentURI) ? 'image-post' : 'action';
   }
@@ -103,7 +104,7 @@ export function assertSponsoredCall(target: Address, data: Hex): SponsoredCallKi
     const [, offset, data] = call.args as readonly [Hex, bigint, Hex];
     const size = (data.length - 2) / 2;
     if (size === 0 || size > MEDIA_CHUNK_BYTES || offset + BigInt(size) > BigInt(MAX_IMAGE_BYTES)) {
-      throw new HttpError(400, `${APP_NAME} can't pay the fee of an image that big`);
+      throw new HttpError(400, `${currentConfig().appName} can't pay the fee of an image that big`);
     }
     return 'media-chunk';
   }
@@ -131,7 +132,7 @@ export async function assertMediaSponsored() {
   if (!allowed) {
     throw new HttpError(
       403,
-      `${APP_NAME} doesn't pay for images yet. Pay the fee from your wallet (Settings) to post one.`
+      `${currentConfig().appName} doesn't pay for images yet. Pay the fee from your wallet (Settings) to post one.`
     );
   }
 }

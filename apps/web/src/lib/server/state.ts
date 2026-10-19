@@ -67,6 +67,11 @@ const NO_BUDGET = 2n ** 62n;
 export async function reserveGas(gas: bigint): Promise<GasReservation> {
   const reservation = await serverState().gasBudget.reserve(gas, gasBudgetPerHour() ?? NO_BUDGET);
   if (!reservation) {
+    const { notifyAdmins } = await import('./notifications-email');
+    await notifyAdmins('gas_budget_exhausted', {
+      message:
+        'A sponsored action was refused because it did not fit this hour’s remaining gas budget.',
+    }).catch(() => console.error('Could not send the gas budget alert'));
     throw new HttpError(
       503,
       'Free actions are used up for this hour. Try again later, or pay the gas from your wallet (Settings).'

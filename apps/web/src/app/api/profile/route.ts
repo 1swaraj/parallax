@@ -1,6 +1,6 @@
 import { EMPTY_SOURCE_STAMP, sponsorRouterAbi } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
-import { contracts } from '@/lib/config';
+import { runtimeContracts as contracts } from '@/lib/server/contracts';
 import { sendAsRelayer } from '@/lib/server/chain';
 import { maxGasPerTransaction } from '@/lib/server/env';
 import { assertSameOrigin, assertSponsorshipAvailable, handle } from '@/lib/server/guard';

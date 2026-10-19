@@ -5,7 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useConnect, useConnection, useConnectors, useDisconnect } from 'wagmi';
 import { useGasMode, useLensActions, useSponsorship } from '@/lib/actions';
-import { APP_NAME } from '@/lib/brand';
+import { useBrand } from '@/lib/runtime-config';
 import { MAX_BIO_CHARACTERS, MAX_NAME_CHARACTERS } from '@/lib/config';
 import { useProfile } from '@/lib/indexer';
 import { NEW_PASSKEY, PASSKEY } from '@/lib/passkey';
@@ -112,6 +112,7 @@ export function Field({
 }
 
 export function CreateAccountForm({ onCreated }: { onCreated?: () => void }) {
+  const { APP_NAME } = useBrand();
   const toast = useToast();
   const { signUp } = useLensActions();
   const [gasMode] = useGasMode();
@@ -274,6 +275,7 @@ export function connectorIcon(connector: { type: string }): IconName {
  * `onConnected` runs once a connector connects; the sign-in flow takes over from there.
  */
 export function SignInOptions({ onConnected }: { onConnected?: () => void }) {
+  const { APP_NAME } = useBrand();
   const connectors = useConnectors();
   const { mutate: connect, isPending, variables } = useConnect();
   const available = useSponsorship();
@@ -348,6 +350,7 @@ export function SignInOptions({ onConnected }: { onConnected?: () => void }) {
 
 /** Connect a wallet, sign in (SIWE, one free signature), create an account if the wallet has none. */
 export function AuthFlow({ onDone }: { onDone: () => void }) {
+  const { APP_NAME } = useBrand();
   const { isConnected, address } = useConnection();
   const { mutate: disconnect } = useDisconnect();
   const { owner, account, needsSignIn, signIn } = useSession();

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useConnection } from 'wagmi';
-import { APP_NAME, APP_PITCH, APP_TAGLINE } from '@/lib/brand';
+import { useBrand } from '@/lib/runtime-config';
 import {
   useLastSeenNotification,
   useProfile,
@@ -73,6 +73,7 @@ function CountBadge({ count, className = '' }: { count: number; className?: stri
 }
 
 function Sidebar() {
+  const { APP_NAME } = useBrand();
   const pathname = usePathname();
   const items = useNavItems();
   const { account, owner } = useSession();
@@ -152,6 +153,7 @@ function Sidebar() {
 }
 
 function MobileHeader() {
+  const { APP_NAME } = useBrand();
   const { account } = useSession();
   const { data: me } = useProfile(account, null);
   const openAuth = useAuthModal();
@@ -339,6 +341,7 @@ function Trends() {
 }
 
 function JoinCard() {
+  const { APP_NAME } = useBrand();
   const openAuth = useAuthModal();
   return (
     <section className="flex flex-col items-start gap-3 border border-border-default bg-bg-elevated p-4">
@@ -370,6 +373,7 @@ function Aside() {
 
 /** X's logged-out bar: the one primary action for visitors. */
 function JoinBar() {
+  const { APP_NAME, APP_PITCH, APP_TAGLINE } = useBrand();
   const { owner, account, isLoading } = useSession();
   const { isConnected } = useConnection();
   const openAuth = useAuthModal();
@@ -450,6 +454,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
   useEffect(() => setMounted(true), []);
   useRouteFocus(main);
   useComposeShortcut();
+  if (pathname === '/setup' || pathname.startsWith('/admin'))
+    return (
+      <main
+        ref={main}
+        className="mx-auto min-h-dvh w-full max-w-4xl border-x border-border-default bg-bg-default"
+      >
+        {children}
+      </main>
+    );
   if (!account && !isPublicPath(pathname)) {
     return !mounted || isLoading ? (
       <div className="grid min-h-dvh place-items-center" role="status" aria-label="Loading">

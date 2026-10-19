@@ -1,10 +1,10 @@
 import { createConfig, createConnector, http, type CreateConnectorFn } from 'wagmi';
 import { injected, walletConnect } from 'wagmi/connectors';
-import { APP_DESCRIPTION, APP_NAME } from './brand';
+import { brandCopy } from './brand';
 import { chain } from './config';
 import { passkeyConnectors } from './passkey';
-
-const WALLETCONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+import { defineChain } from 'viem';
+import type { PublicConfig } from './instance-schema';
 
 /**
  * WalletConnect, for phones and wallets without an extension, when a project ID is set. In the browser only: the
@@ -13,7 +13,8 @@ const WALLETCONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_I
  * Its provider (~300 KB compressed) loads once someone picks it, or on load when it's the wallet they used last: wagmi
  * asks every connector for its provider as the page loads, which would otherwise load it for every visitor.
  */
-function walletConnectConnector(): CreateConnectorFn[] {
+function walletConnectConnector(runtime: PublicConfig): CreateConnectorFn[] {
+  const WALLETCONNECT_PROJECT_ID = runtime.walletConnectProjectId;
   if (!WALLETCONNECT_PROJECT_ID || typeof window === 'undefined') {
     return [];
   }
@@ -21,10 +22,10 @@ function walletConnectConnector(): CreateConnectorFn[] {
   const create = walletConnect({
     projectId: WALLETCONNECT_PROJECT_ID,
     metadata: {
-      name: APP_NAME,
-      description: APP_DESCRIPTION,
+      name: runtime.appName,
+      description: brandCopy(runtime).APP_DESCRIPTION,
       url: origin,
-      icons: [`${origin}/icon.svg`],
+      icons: [runtime.iconUrl || `${origin}/icon`],
     },
   });
   return [
@@ -48,22 +49,28 @@ function walletConnectConnector(): CreateConnectorFn[] {
   ];
 }
 
-export const wagmiConfig = createConfig({
-  chains: [chain],
-  connectors: [
-    injected(),
-    // Passkey accounts, in browsers with WebAuthn, unless NEXT_PUBLIC_PASSKEYS is false.
-    ...(process.env.NEXT_PUBLIC_PASSKEYS !== 'false' && typeof PublicKeyCredential === 'function'
-      ? passkeyConnectors()
-      : []),
-    ...walletConnectConnector(),
-  ],
-  transports: { [chain.id]: http() },
-  ssr: true,
-});
+export function createWagmiConfig(runtime: PublicConfig) {
+  const runtimeChain = defineChain({
+    ...chain,
+    rpcUrls: { default: { http: [runtime.publicRpcUrl] } },
+  });
+  return createConfig({
+    chains: [runtimeChain],
+    connectors: [
+      injected(),
+      // Passkey accounts, in browsers with WebAuthn, unless NEXT_PUBLIC_PASSKEYS is false.
+      ...(process.env.NEXT_PUBLIC_PASSKEYS !== 'false' && typeof PublicKeyCredential === 'function'
+        ? passkeyConnectors()
+        : []),
+      ...walletConnectConnector(runtime),
+    ],
+    transports: { [chain.id]: http(runtime.publicRpcUrl) },
+    ssr: true,
+  });
+}
 
 declare module 'wagmi' {
   interface Register {
-    config: typeof wagmiConfig;
+    config: ReturnType<typeof createWagmiConfig>;
   }
 }
