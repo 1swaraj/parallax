@@ -20,6 +20,55 @@ import { handle, HttpError } from './guard';
 import { pageLimit } from './requests';
 
 const NO_STORE = { 'cache-control': 'no-store' };
+/** What a post image's response keeps from the indexer's: what it is, and how browsers may treat it. */
+const MEDIA_HEADERS = [
+  'content-type',
+  'content-length',
+  'content-security-policy',
+  'x-content-type-options',
+];
+// The bytes behind an image never change, but moderators can hide its author: caches keep it 5 minutes, not for good.
+const MEDIA_CACHE = 'public, max-age=300';
+const MEDIA_ROUTE = /^media\/(0x[0-9a-fA-F]{40})\/(0x[0-9a-f]{64})$/;
+
+/**
+ * A post image (`media/<author>/<id>`), as bytes. The indexer checks it against its id, serves it only as the image
+ * type it sniffs as, and sandboxes it; this keeps those headers, and refuses images whose author moderators hid.
+ */
+async function proxyMedia(
+  request: Request,
+  base: string,
+  path: string[],
+  author: string,
+  send: typeof fetch
+): Promise<Response> {
+  if (hiddenAccount({ address: author } as AccountView, await moderationSnapshot()))
+    throw new HttpError(404, 'Not found');
+  let response: Response;
+  try {
+    response = await send(`${base}/${path.map(encodeURIComponent).join('/')}`, {
+      method: request.method === 'HEAD' ? 'HEAD' : 'GET',
+      redirect: 'manual',
+      cache: 'no-store',
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(10_000)]),
+    });
+  } catch {
+    throw new HttpError(request.signal.aborted ? 499 : 504, 'The indexer did not respond');
+  }
+  if (response.status === 404 || response.status === 451)
+    throw new HttpError(
+      response.status,
+      response.status === 404 ? 'Not found' : 'This image is unavailable'
+    );
+  if (!response.ok) throw new HttpError(502, 'Indexer request failed');
+  const headers = new Headers({ 'cache-control': MEDIA_CACHE });
+  for (const name of MEDIA_HEADERS) {
+    const value = response.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return new Response(request.method === 'HEAD' ? null : response.body, { headers });
+}
+
 /** Only known REST reads are exposed. Raw indexer SQL/GraphQL would bypass instance visibility. */
 export async function proxyIndexer(
   request: Request,
@@ -36,6 +85,9 @@ export async function proxyIndexer(
     )
       return new Response(null, { status: 400 });
     const route = path.join('/');
+    const media = MEDIA_ROUTE.exec(route);
+    if (media)
+      return proxyMedia(request, config.indexerUrl.replace(/\/+$/, ''), path, media[1]!, send);
     if (
       !/^(status|timeline(?:\/following)?|posts(?:\/[0-9]{1,78})?|search\/posts|trends|accounts(?:\/[^/]+(?:\/(?:posts|followers|following))?)?|relationships|notifications(?:\/unread)?)$/.test(
         route

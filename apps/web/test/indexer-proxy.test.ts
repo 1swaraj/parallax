@@ -172,3 +172,75 @@ describe('runtime moderated indexer proxy', () => {
     expect(data).toEqual({ items: [{ tag: 'community', posts: 1 }] });
   });
 });
+
+describe('post images through the proxy', () => {
+  const author = '0x9Ab696d9333813530B90188b2f2cd0C78A1c049d';
+  const id = `0x${'cd'.repeat(32)}`;
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+  const image = () =>
+    new Response(png, {
+      headers: {
+        'content-type': 'image/png',
+        'content-length': String(png.length),
+        'content-security-policy': "default-src 'none'; sandbox",
+        'x-content-type-options': 'nosniff',
+        'cache-control': 'public, max-age=31536000, immutable',
+        'set-cookie': 'private',
+      },
+    });
+  const mediaReq = (method = 'GET', path = `${author}/${id}`) =>
+    new Request(`https://app.example/media/${path}`, { method });
+
+  it('passes the bytes and the image headers through, cached for 5 minutes', async () => {
+    vi.stubEnv('INDEXER_URL', 'https://indexer.example');
+    const send = vi.fn<typeof fetch>(async () => image());
+    const response = await proxyIndexer(mediaReq(), ['media', author, id], send);
+    expect(send.mock.calls[0]![0]).toBe(`https://indexer.example/media/${author}/${id}`);
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(png);
+    expect(response.headers.get('content-type')).toBe('image/png');
+    expect(response.headers.get('content-security-policy')).toContain('sandbox');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(response.headers.get('cache-control')).toBe('public, max-age=300');
+    expect(response.headers.has('set-cookie')).toBe(false);
+  });
+
+  it('answers HEAD without a body, asking the indexer with HEAD', async () => {
+    vi.stubEnv('INDEXER_URL', 'https://indexer.example');
+    const send = vi.fn<typeof fetch>(
+      async () => new Response(null, { headers: { 'content-type': 'image/png' } })
+    );
+    const response = await proxyIndexer(mediaReq('HEAD'), ['media', author, id], send);
+    expect(send.mock.calls[0]![1]!.method).toBe('HEAD');
+    expect(response.status).toBe(200);
+    expect(response.body).toBeNull();
+  });
+
+  it('refuses the images of accounts moderators hid, without asking the indexer', async () => {
+    vi.stubEnv('INDEXER_URL', 'https://indexer.example');
+    state.accounts.set(author.toLowerCase(), status({ hidden: true }));
+    const send = vi.fn<typeof fetch>(async () => image());
+    const response = await proxyIndexer(mediaReq(), ['media', author, id], send);
+    expect(response.status).toBe(404);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("keeps the indexer's 404 for an image it doesn't have, and refuses other media paths", async () => {
+    vi.stubEnv('INDEXER_URL', 'https://indexer.example');
+    const missing = vi.fn<typeof fetch>(async () =>
+      Response.json({ error: 'Not found' }, { status: 404 })
+    );
+    expect((await proxyIndexer(mediaReq(), ['media', author, id], missing)).status).toBe(404);
+    const send = vi.fn<typeof fetch>(async () => image());
+    for (const path of [
+      ['media'],
+      ['media', author],
+      ['media', author, 'not-an-id'],
+      ['media', 'x', id],
+    ])
+      expect(
+        (await proxyIndexer(mediaReq('GET', path.slice(1).join('/')), path, send)).status
+      ).toBe(404);
+    expect(send).not.toHaveBeenCalled();
+  });
+});
