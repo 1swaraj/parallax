@@ -315,8 +315,11 @@ In Admin → Email, save the Resend API key, from-address and verified domain. *
 and DNS verification status; **Send test email** sends a plain, branded test. Domain verification and DNS changes
 remain in Resend/your DNS provider. No email is sent until a key and from-address are configured.
 
-Set a random `CRON_SECRET`. `apps/web/vercel.json` schedules `/api/cron` every five minutes (requires a Vercel plan
-that supports that frequency). Another scheduler can call the same route with `Authorization: Bearer <CRON_SECRET>`.
+Set a random `CRON_SECRET`. `apps/web/vercel.json` schedules `/api/cron` once a day, at 08:00 UTC: Vercel's Hobby plan
+allows only daily cron jobs and refuses to deploy a project with a more frequent one
+([Vercel: cron usage and pricing](https://vercel.com/docs/cron-jobs/usage-and-pricing)). For timely operator alerts,
+run it every five minutes: on Vercel Pro, change the schedule to `*/5 * * * *`; on any plan, have another scheduler call
+the same route with `Authorization: Bearer <CRON_SECRET>`.
 It checks low relayer balances, health degraded for at least five minutes and the hourly gas budget, then processes
 up to 50 due digest recipients. Keep the schedule running for alerts and digests. Larger instances can invoke it more
 frequently; row locks and provider idempotency keys protect simultaneous runs. Each operator alert type is debounced
