@@ -1,4 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { currentConfig, getInstanceConfig } from './lib/server/instance-config';
+import { settingUpPage } from './lib/server/setting-up-page';
 import { setupStatus } from './lib/server/setup';
 
 export async function proxy(request: NextRequest) {
@@ -23,9 +25,10 @@ export async function proxy(request: NextRequest) {
       { error: 'This instance is being set up. Please check back soon.' },
       { status: 503, headers }
     );
-  return new NextResponse(
-    '<!doctype html><html lang="en"><meta name="viewport" content="width=device-width"><title>Setting up</title><body style="font-family:system-ui;max-width:36rem;margin:15vh auto;padding:1.5rem"><h1>This instance is being set up</h1><p>Please check back soon.</p><a href="/setup">Operator setup</a></body></html>',
-    { status: 503, headers: { ...headers, 'content-type': 'text/html; charset=utf-8' } }
-  );
+  const config = await getInstanceConfig().catch(() => currentConfig());
+  return new NextResponse(settingUpPage(config), {
+    status: 503,
+    headers: { ...headers, 'content-type': 'text/html; charset=utf-8' },
+  });
 }
 export const config = { matcher: ['/((?!_next/|icon|opengraph-image|favicon.ico).*)'] };

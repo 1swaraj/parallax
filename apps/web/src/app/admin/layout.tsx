@@ -2,24 +2,14 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { findAdmin } from '@/lib/server/admin';
 import { PageHeader } from '@/components/ui';
+import { sectionsFor } from '@/lib/admin-sections';
 export const dynamic = 'force-dynamic';
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const admin = await findAdmin();
   if (!admin) notFound();
   const links = [
     ['', 'Overview'],
-    ...(admin.role !== 'moderator'
-      ? [
-          ['branding', 'Branding'],
-          ['network', 'Network'],
-          ['sponsorship', 'Sponsorship & limits'],
-          ['email', 'Email'],
-        ]
-      : []),
-    ...(admin.role === 'owner' ? [['team', 'Team']] : []),
-    ['moderation', 'Moderation'],
-    ['moderation-log', 'Moderation log'],
-    ...(admin.role !== 'moderator' ? [['audit', 'Audit log']] : []),
+    ...sectionsFor(admin.role).map((section) => [section.slug, section.label]),
   ];
   return (
     <>

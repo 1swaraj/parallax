@@ -2,6 +2,7 @@
 import { EmailSettings } from '@/components/email-settings';
 
 import { useMutation } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useConnection, useDisconnect } from 'wagmi';
 import { atHandle, Avatar, displayName } from '@/components/account';
 import { Icon } from '@/components/icons';
@@ -9,7 +10,7 @@ import { ConnectWalletButton, SignOutButton } from '@/components/auth';
 import { useAuthModal, useEditProfile } from '@/components/modals';
 import { useTheme, type Theme } from '@/components/theme';
 import { useToast } from '@/components/toast';
-import { Button, CornerBrackets, PageHeader } from '@/components/ui';
+import { Button, buttonClassName, CornerBrackets, PageHeader } from '@/components/ui';
 import { useGasMode, useLensActions, useSponsorship, type GasMode } from '@/lib/actions';
 import { useBrand } from '@/lib/runtime-config';
 import { useNetwork } from '@/lib/runtime-config';
@@ -255,7 +256,7 @@ function SpecRow({ topic, value, href }: { topic: string; value: string; href?: 
 export default function SettingsPage() {
   const { chain, contracts, EXPLORER_URL, explorerAddressUrl } = useNetwork();
   const { APP_NAME } = useBrand();
-  const { owner, account } = useSession();
+  const { owner, account, role } = useSession();
   const [theme, setTheme] = useTheme();
   const openAuth = useAuthModal();
   usePageTitle('Settings');
@@ -278,6 +279,17 @@ export default function SettingsPage() {
               </Button>
             </div>
           </div>
+        </Section>
+      )}
+      {role && (
+        <Section
+          title="This instance"
+          description={`You're ${role === 'admin' ? 'an' : 'a'} ${role} of ${APP_NAME}. Branding, network, sponsorship, email, team and moderation are in the admin panel.`}
+        >
+          <Link href="/admin" className={buttonClassName()}>
+            <Icon name="shield" size={16} />
+            Open the admin panel
+          </Link>
         </Section>
       )}
       <Section title="Appearance">

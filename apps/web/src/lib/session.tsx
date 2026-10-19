@@ -7,7 +7,12 @@ import { useConnection, useSignMessage } from 'wagmi';
 import { useBrand } from '@/lib/runtime-config';
 import { CHAIN_ID } from './config';
 
-export type Session = { owner: Address | null; account: Address | null };
+export type Session = {
+  owner: Address | null;
+  account: Address | null;
+  /** This instance's admin role for the signed-in wallet, if it has one. */
+  role?: 'owner' | 'admin' | 'moderator' | null;
+};
 
 const SESSION_KEY = ['session'];
 
@@ -46,6 +51,7 @@ export function useSession() {
   const otherWallet = !!address && !!session.owner && !isAddressEqual(address, session.owner);
   const owner = otherWallet ? null : session.owner;
   const account = otherWallet ? null : session.account;
+  const role = otherWallet ? null : (session.role ?? null);
 
   const signIn = useMutation({
     mutationFn: async () => {
@@ -94,12 +100,14 @@ export function useSession() {
     owner,
     /** The Lens Account the user acts as. */
     account,
+    /** The wallet's admin role on this instance: only for showing links, the server checks it again. */
+    role,
     /** Connected, but the session is for nobody or another wallet. */
     needsSignIn: !isLoading && !!address && (!session.owner || otherWallet),
     signIn,
     signOut,
     selectAccount,
     setAccount: (next: Address) =>
-      queryClient.setQueryData(SESSION_KEY, { owner: session.owner, account: next }),
+      queryClient.setQueryData(SESSION_KEY, { ...session, account: next }),
   };
 }

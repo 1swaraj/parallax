@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useConnection } from 'wagmi';
 import { useBrand } from '@/lib/runtime-config';
 import { useSession } from '@/lib/session';
@@ -7,7 +8,7 @@ import { SignInOptions, SignOutButton } from './auth';
 import { FooterLinks } from './footer-links';
 import { Wordmark } from './brand';
 import { useAuthModal } from './modals';
-import { Button } from './ui';
+import { Button, buttonClassName } from './ui';
 
 /**
  * What signed-out visitors see instead of the app, like X's: the pitch and a way in, no timeline. Passkeys come first
@@ -15,7 +16,7 @@ import { Button } from './ui';
  */
 export function Landing() {
   const { APP_TAGLINE } = useBrand();
-  const { owner, account } = useSession();
+  const { owner, account, role } = useSession();
   const { isConnected } = useConnection();
   const openAuth = useAuthModal();
 
@@ -44,6 +45,11 @@ export function Landing() {
                 <Button variant="primary" onClick={openAuth}>
                   Pick your username
                 </Button>
+                {role && (
+                  <Link href="/admin" className={buttonClassName()}>
+                    Open the admin panel
+                  </Link>
+                )}
                 <SignOutButton />
               </>
             ) : isConnected ? (

@@ -5,6 +5,7 @@ import { isOwnedBy } from '@/lib/server/chain';
 import { assertSameOrigin, handle, HttpError } from '@/lib/server/guard';
 import { recordDirectSignup } from '@/lib/server/signups';
 import { assertAccess, selectDirectSignup, rememberExternalAccount } from '@/lib/server/moderation';
+import { findAdmin } from '@/lib/server/admin';
 import { getSession } from '@/lib/server/session';
 
 export async function GET() {
@@ -22,8 +23,10 @@ export async function GET() {
       if (session.account) await rememberExternalAccount(session.account, session.owner);
       await assertAccess(session.owner, session.account);
     }
+    // The role only decides which links the app shows; every admin page and API checks it again.
+    const role = session.owner ? ((await findAdmin())?.role ?? null) : null;
     return NextResponse.json(
-      { owner: session.owner ?? null, account: session.account ?? null },
+      { owner: session.owner ?? null, account: session.account ?? null, role },
       { headers: { 'cache-control': 'no-store' } }
     );
   });

@@ -24,10 +24,17 @@ import { Icon, type IconName } from './icons';
 import { useAuthModal, useCompose } from './modals';
 import { Button } from './ui';
 
-type NavItem = { href: string; label: string; icon: IconName; badge?: number };
+/** `desktopOnly`: the phone's bottom bar has room for five; Settings links there instead. */
+type NavItem = {
+  href: string;
+  label: string;
+  icon: IconName;
+  badge?: number;
+  desktopOnly?: boolean;
+};
 
 function useNavItems(): NavItem[] {
-  const { account } = useSession();
+  const { account, role } = useSession();
   const { data: me } = useProfile(account, null);
   const seen = useLastSeenNotification(account);
   const { data: unread } = useUnreadNotifications(account, seen);
@@ -50,6 +57,10 @@ function useNavItems(): NavItem[] {
         ]
       : []),
     { href: '/settings', label: 'Settings', icon: 'gear' },
+    // The instance's operators: owners, admins and moderators.
+    ...(role
+      ? [{ href: '/admin', label: 'Admin', icon: 'shield' as const, desktopOnly: true }]
+      : []),
   ];
 }
 
@@ -206,23 +217,25 @@ function MobileNav() {
         aria-label="Primary"
         className="fixed inset-x-0 bottom-0 z-30 flex justify-around border-t border-border-default bg-bg-default pb-[env(safe-area-inset-bottom)] sm:hidden"
       >
-        {items.map((item) => {
-          const active = isActive(pathname, item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-label={item.label}
-              aria-current={active ? 'page' : undefined}
-              className={`focus-ring relative grid h-14 w-14 place-items-center ${active ? 'text-text-primary' : 'text-text-secondary'}`}
-            >
-              <Icon name={item.icon} size={24} filled={active} />
-              {item.badge !== undefined && (
-                <CountBadge count={item.badge} className="absolute top-2 right-1.5" />
-              )}
-            </Link>
-          );
-        })}
+        {items
+          .filter((item) => !item.desktopOnly)
+          .map((item) => {
+            const active = isActive(pathname, item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-label={item.label}
+                aria-current={active ? 'page' : undefined}
+                className={`focus-ring relative grid h-14 w-14 place-items-center ${active ? 'text-text-primary' : 'text-text-secondary'}`}
+              >
+                <Icon name={item.icon} size={24} filled={active} />
+                {item.badge !== undefined && (
+                  <CountBadge count={item.badge} className="absolute top-2 right-1.5" />
+                )}
+              </Link>
+            );
+          })}
       </nav>
     </>
   );
