@@ -264,8 +264,9 @@ with the database: changing it makes stored secrets unreadable. `SESSION_SECRET`
 continue to work; adding `INSTANCE_SECRET` enables managed setup and administration.
 
 Open `/setup`. Tables in `lens_web` are created automatically on server startup; concurrent instances share an
-idempotent migration protected by a database lock. Until setup is finished, ordinary pages and app writes answer 503
-with a setup message. `/indexer` reads and authentication remain available.
+idempotent migration protected by a database lock. Until setup is finished, ordinary pages and app writes answer 503.
+Pages show the instance's name with a note for visitors and, for the operator, the setup steps and links to `/setup`,
+this guide and `/api/health`. `/indexer` reads and authentication remain available.
 
 1. Enter `SETUP_TOKEN` and sign in with the wallet that will own the instance. If `SETUP_TOKEN` is unset, the first
    server to initialize the database prints a random, single-use token to its logs. Later starts do not print it again.
@@ -284,7 +285,10 @@ owner, prints a new single-use token and records the reset in the audit log. Oth
 retained. The old token, including `SETUP_TOKEN`, cannot claim the instance again.
 
 `/admin` uses the same wallet/SIWE session as the app; no Lens account is needed. Sign in with your wallet on the
-home page, then open `/admin`. Visitors and wallets without an admin role get 404. The owner manages the team by wallet
+home page: owners, admins and moderators then see an **Admin** link in the sidebar, in Settings (on phones), and on
+the home page when the wallet has no Lens account yet. Visitors and wallets without an admin role get 404. Overview
+starts with a setup checklist (indexer, sponsorship, branding, email, sign-up policy, team), each item linking to its
+page, then a card for every page the role can open. The owner manages the team by wallet
 address or Lens username. Admins can edit branding, network, sponsorship, limits and email, and read the audit log;
 moderators can see overview, the moderation queue and moderation history. Each member can opt into operator alerts on Overview.
 Overview shows health details without a `HEALTH_TOKEN`, relayer balances, indexer lag, hourly gas and today's signups through this client (UTC), including wallet-paid signups. The audit log records every administrator write;
