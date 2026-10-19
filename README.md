@@ -216,9 +216,13 @@ Parallax runs as a Next.js app on Vercel (the pages and the relayer's API), and 
    `packages/protocol/deployments` and run `pnpm sync:contracts --address-books`. Commit both files.
 2. **Relayers.** Two or more keys, allowlisted on the SponsorRouter and funded with MON: see
    [Relayers and sponsorship](#relayers-and-sponsorship).
-3. **Railway.** A Postgres service, and the indexer (`apps/indexer`: its `railway.json`, and its `.env.example` for
-   `PONDER_CHAIN_ID`, `PONDER_RPC_URL`, `PONDER_GET_LOGS_RANGE` and `DATABASE_URL`). Give the indexer a public domain:
-   it's the app's `INDEXER_URL`. The app keeps its own tables (relayer nonces, rate limits, the gas budget, and likes, which are
+3. **Railway.** A Postgres service, and the indexer: a service from this repository, at its root, with the settings
+   in `apps/indexer/railway.json` (Dockerfile path, start command, the `/ready` healthcheck with a 3600s timeout,
+   restart on failure, watch paths) and the variables of `apps/indexer/.env.example`, `DATABASE_URL` as a reference
+   to the database's (`${{Postgres.DATABASE_URL}}`) and `PORT=42069`. Railway no longer reads `railway.json` for new
+   services, so set them on the service (Settings, or its GraphQL API's `serviceInstanceUpdate`). Give the indexer a
+   public domain on port 42069: it's the app's `INDEXER_URL`. For the app's `DATABASE_URL`, add a TCP proxy to the
+   database and use its endpoint with `?sslmode=require`. The app keeps its own tables (relayer nonces, rate limits, the gas budget, and likes, which are
    Parallax's own and off-chain) in the `lens_web` schema of the same database.
 4. **Images.** `RPC_URL=… DEPLOYER_PRIVATE_KEY=… pnpm deploy:media-store` deploys `MediaStore` (any funded key: it
    isn't owned), then add the chain and the block it prints to `MEDIA_STORE_DEPLOYMENTS` in
