@@ -1,13 +1,17 @@
 import type { ProfileView, ThreadView } from '@lens-monad/protocol';
 import type { Metadata } from 'next';
-import { APP_NAME } from './brand';
-
-const indexerUrl = (process.env.INDEXER_URL ?? 'http://127.0.0.1:42069').replace(/\/+$/, '');
+import { getInstanceConfig } from './server/instance-config';
+import { moderationSnapshot } from './server/moderation';
+import { hiddenAccount, hiddenPost, moderatePost } from './server/moderation-reads';
 
 /** Server-side reads for link previews. Failures just mean a generic preview. */
 async function fetchIndexer<T>(path: string): Promise<T | null> {
   try {
-    const response = await fetch(`${indexerUrl}${path}`, { next: { revalidate: 60 } });
+    const { indexerUrl } = await getInstanceConfig();
+    const response = await fetch(`${indexerUrl}${path}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
     return response.ok ? ((await response.json()) as T) : null;
   } catch {
     return null;
@@ -20,8 +24,9 @@ function excerpt(text: string, length = 160) {
 }
 
 export async function profileMetadata(handle: string): Promise<Metadata> {
+  const { appName: APP_NAME } = await getInstanceConfig();
   const profile = await fetchIndexer<ProfileView>(`/accounts/${encodeURIComponent(handle)}`);
-  if (!profile) {
+  if (!profile || hiddenAccount(profile.account, await moderationSnapshot())) {
     return { title: 'Profile' };
   }
   const { account } = profile;
@@ -39,8 +44,14 @@ export async function profileMetadata(handle: string): Promise<Metadata> {
 }
 
 export async function postMetadata(id: string): Promise<Metadata> {
+  const { appName: APP_NAME } = await getInstanceConfig();
   const thread = await fetchIndexer<ThreadView>(`/posts/${encodeURIComponent(id)}`);
-  if (!thread || thread.post.deleted) {
+  if (
+    !thread ||
+    thread.post.deleted ||
+    hiddenPost(thread.post, await moderationSnapshot()) ||
+    moderatePost(thread.post, await moderationSnapshot()).moderation?.warning
+  ) {
     return { title: 'Post' };
   }
   const { post } = thread;

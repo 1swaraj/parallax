@@ -1,11 +1,12 @@
 import { isAddressEqual, type Hex } from 'viem';
 import { privateKeyToAddress } from 'viem/accounts';
 import { IS_LOCAL } from '../config';
+import { currentConfig } from './instance-config';
+import { CONFIG_ENV } from '../instance-schema';
 
 // Anvil's 4th account, which DeployLaunch allowlists as relayer on chain 31337. Public, so local only.
 const LOCAL_RELAYER_KEY = '0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6';
 const LOCAL_SESSION_SECRET = 'local-development-only-session-secret-0123456789';
-const LOCAL_INDEXER_URL = 'http://127.0.0.1:42069';
 
 function required(name: string, localDefault: string): string {
   const value = process.env[name];
@@ -25,6 +26,9 @@ function required(name: string, localDefault: string): string {
 export function relayerKeys(): Hex[] {
   const list =
     process.env.RELAYER_PRIVATE_KEYS || required('RELAYER_PRIVATE_KEY', LOCAL_RELAYER_KEY);
+  return parseRelayerKeys(list);
+}
+export function parseRelayerKeys(list: string): Hex[] {
   const keys = list
     .split(',')
     .map((key) => key.trim())
@@ -49,24 +53,27 @@ export function relayerKeys(): Hex[] {
 export function sessionSecret(): string {
   // The local default is public: a Vercel deployment left on chain 31337 (e.g. a preview missing its variables) would
   // sign sessions anyone can forge.
-  if (!process.env.SESSION_SECRET && process.env.VERCEL) {
+  if (!process.env.SESSION_SECRET && !process.env.INSTANCE_SECRET && process.env.VERCEL) {
     throw new Error('SESSION_SECRET must be set on Vercel');
   }
-  const secret = required('SESSION_SECRET', LOCAL_SESSION_SECRET);
+  const secret =
+    process.env.SESSION_SECRET ||
+    process.env.INSTANCE_SECRET ||
+    required('SESSION_SECRET', LOCAL_SESSION_SECRET);
   if (secret.length < 32) {
     throw new Error('SESSION_SECRET must be at least 32 characters');
   }
   return secret;
 }
 
-/** The indexer's base URL, without a trailing slash. next.config.ts reads the same variable for the /indexer proxy. */
+/** The indexer's runtime base URL, without a trailing slash. */
 export function indexerUrl(): string {
-  return required('INDEXER_URL', LOCAL_INDEXER_URL).replace(/\/+$/, '');
+  return currentConfig().indexerUrl.replace(/\/+$/, '');
 }
 
 /** A server-only RPC (e.g. a paid one, with its key in the URL), or NEXT_PUBLIC_RPC_URL, which browsers use too. */
 export function serverRpcUrl(): string | undefined {
-  return process.env.RPC_URL || undefined;
+  return currentConfig().serverRpcUrl || currentConfig().publicRpcUrl;
 }
 
 /**
@@ -79,7 +86,7 @@ export function databaseUrl(): string | undefined {
 
 /** The app's public URL (NEXT_PUBLIC_APP_URL), or undefined when unset. */
 export function appUrl(): URL | undefined {
-  const value = process.env.NEXT_PUBLIC_APP_URL;
+  const value = currentConfig().appUrl;
   return value ? new URL(value) : undefined;
 }
 
@@ -90,7 +97,16 @@ export function healthToken(): string | undefined {
 
 /** A gas amount (underscores allowed, e.g. 1_500_000), or null when unset. */
 function gasEnv(name: string): bigint | null {
-  const value = process.env[name]?.replace(/_/g, '').trim();
+  const key = Object.entries(CONFIG_ENV).find(([, names]) =>
+    (names as readonly string[]).includes(name)
+  )?.[0];
+  const value = String(
+    key
+      ? (currentConfig()[key as keyof ReturnType<typeof currentConfig>] ?? '')
+      : (process.env[name] ?? '')
+  )
+    .replace(/_/g, '')
+    .trim();
   if (!value) {
     return null;
   }
@@ -146,10 +162,17 @@ export function missingSponsorSettings(): string[] {
 }
 
 export function numberEnv(name: string, fallback: number): number {
-  const value = Number(process.env[name]);
+  const key = Object.entries(CONFIG_ENV).find(([, names]) =>
+    (names as readonly string[]).includes(name)
+  )?.[0];
+  const value = Number(
+    key ? currentConfig()[key as keyof ReturnType<typeof currentConfig>] : process.env[name]
+  );
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 export function booleanEnv(name: string): boolean {
-  return ['true', '1'].includes(process.env[name]?.trim().toLowerCase() ?? '');
+  return name === 'RELAY_PAUSED'
+    ? currentConfig().relayPaused
+    : ['true', '1'].includes(process.env[name]?.trim().toLowerCase() ?? '');
 }

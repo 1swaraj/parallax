@@ -6,6 +6,7 @@ import { publicClient } from '@/lib/server/chain';
 import { appUrl } from '@/lib/server/env';
 import { assertSameOrigin, handle, HttpError } from '@/lib/server/guard';
 import { getSession, isFreshSignIn } from '@/lib/server/session';
+import { assertAccess, rememberExternalAccount } from '@/lib/server/moderation';
 
 /** Signs in with Ethereum (EIP-4361), then picks the first Lens Account the signer owns. */
 export async function POST(request: Request) {
@@ -42,7 +43,12 @@ export async function POST(request: Request) {
       await session.save();
       throw new HttpError(401, 'Invalid signature');
     }
-    const accounts = await accountsOwnedBy(fields.address);
+    // Wallet authentication must remain available when the indexer is down, so operators can repair its config.
+    const accounts = await accountsOwnedBy(fields.address).catch(() => []);
+    // Persist nonce consumption even when this instance refuses account access.
+    await session.save();
+    if (accounts[0]) await rememberExternalAccount(accounts[0], fields.address);
+    await assertAccess(fields.address, accounts[0]);
     session.owner = fields.address;
     session.account = accounts[0];
     await session.save();

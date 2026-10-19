@@ -7,6 +7,7 @@ import { sendAsRelayer } from '../src/lib/server/chain';
 vi.mock('../src/lib/server/chain', () => ({ sendAsRelayer: vi.fn() }));
 vi.mock('../src/lib/server/session', () => ({ getSession: vi.fn(async () => ({})) }));
 vi.mock('../src/lib/server/sponsor', () => ({
+  assertTextAllowed: vi.fn(async () => {}),
   sponsoredAccount: vi.fn(async () => '0x0000000000000000000000000000000000001234'),
 }));
 

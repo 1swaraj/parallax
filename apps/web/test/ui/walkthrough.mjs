@@ -6,7 +6,9 @@
 //
 // Needs playwright-core (PLAYWRIGHT_CORE to point at an install) and a Chromium (CHROMIUM_PATH).
 
-import { APP, open, RPC_URL } from './harness.mjs';
+import path from 'node:path';
+import { APP, open, RPC_URL, SHOTS } from './harness.mjs';
+import { completeSetup, changeBrandAndPause, walkthroughModeration } from './instance.mjs';
 
 const { generatePrivateKey, privateKeyToAccount } = await import('viem/accounts');
 
@@ -70,6 +72,10 @@ const { page, shot, step, finish } = await open(async (context) => {
 const username = `ui${Date.now().toString(36)}`;
 const profile = { handle: username, name: 'UI Walkthrough' };
 
+if (process.env.SETUP_TOKEN) {
+  await step('complete first-run setup', () => completeSetup(page, APP, process.env.SETUP_TOKEN));
+}
+
 await step('landing, signed out', async () => {
   await page.goto(APP, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { name: 'Your followers come with you.' }).waitFor();
@@ -100,6 +106,18 @@ await step('create an account', async () => {
   await dialog.waitFor({ state: 'detached', timeout: 30000 });
   await page.getByRole('button', { name: 'New post' }).first().waitFor();
 });
+
+if (process.env.SETUP_TOKEN) {
+  await step('change instance brand and refuse a paused sponsored post', () =>
+    changeBrandAndPause(page, APP)
+  );
+}
+
+if (process.env.SETUP_TOKEN) {
+  await step('moderation queue, filters, policy and log', () =>
+    walkthroughModeration(page, APP, path.join(SHOTS, 'moderation.png'))
+  );
+}
 
 await step('post from the home composer', async () => {
   const box = page.getByRole('textbox', { name: "What's new?" });

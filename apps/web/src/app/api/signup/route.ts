@@ -5,8 +5,10 @@ import {
   usernameError,
 } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
+import { authorizeSignup, registerMember, moderationSnapshot } from '@/lib/server/moderation';
+import { currentConfig } from '@/lib/server/instance-config';
 import { isAddressEqual, parseEventLogs, type Address, type Log } from 'viem';
-import { contracts } from '@/lib/config';
+import { runtimeContracts as contracts } from '@/lib/server/contracts';
 import { sendAsRelayer } from '@/lib/server/chain';
 import { maxGasPerSignUp, numberEnv } from '@/lib/server/env';
 import {
@@ -22,6 +24,34 @@ import { rateLimit } from '@/lib/server/state';
 export const maxDuration = 60;
 
 const HOUR_MS = 60 * 60 * 1000;
+
+/** Admission for wallet-paid creation; membership is recorded only after ownership/creation checks. */
+export async function PUT(request: Request) {
+  return handle(async () => {
+    assertSameOrigin(request);
+    const { owner } = await getSession();
+    if (!owner) throw new HttpError(401, 'Sign in first');
+    await rateLimit(`admission:${owner}`, 10, HOUR_MS);
+    await authorizeSignup(owner, await request.json(), request);
+    return NextResponse.json({ admitted: true }, { headers: { 'cache-control': 'no-store' } });
+  });
+}
+
+export async function GET() {
+  return handle(async () => {
+    const policy = currentConfig().moderation;
+    return NextResponse.json(
+      {
+        signupMode: policy.signupMode,
+        turnstileEnabled: policy.turnstileEnabled,
+        turnstileSiteKey: policy.turnstileSiteKey,
+        token: policy.signupMode === 'token' ? policy.token : null,
+        sponsorship: policy.sponsorship,
+      },
+      { headers: { 'cache-control': 'no-store' } }
+    );
+  });
+}
 
 /** The Account the sign-up created, from AccountFactory's event: one per sign-up. */
 function createdAccount(logs: Log[]): Address {
@@ -64,6 +94,17 @@ export async function POST(request: Request) {
       numberEnv('SIGNUP_RATE_LIMIT_PER_IP_PER_HOUR', 10),
       HOUR_MS
     );
+    const policy = currentConfig().moderation;
+    if (
+      policy.sponsorship === 'nobody' ||
+      (policy.sponsorship === 'approved' &&
+        !(await moderationSnapshot()).accounts.get(session.owner.toLowerCase())?.approved)
+    )
+      throw new HttpError(
+        403,
+        'This instance does not sponsor this sign-up. You can pay from your wallet.'
+      );
+    await authorizeSignup(session.owner, body, request);
     await rateLimit('signup-all', numberEnv('SPONSOR_SIGNUPS_PER_HOUR', 200), HOUR_MS);
 
     // The Account doesn't exist yet: the owner picks the relayer.
@@ -84,6 +125,7 @@ export async function POST(request: Request) {
       maxGasPerSignUp()
     );
     session.account = createdAccount(logs);
+    await registerMember(session.account, session.owner);
     await session.save();
     return NextResponse.json({
       account: session.account,

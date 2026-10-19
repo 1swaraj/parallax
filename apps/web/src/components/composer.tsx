@@ -13,7 +13,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useBytecode } from 'wagmi';
 import { createdPostId, useLensActions } from '@/lib/actions';
-import { APP_NAME } from '@/lib/brand';
+import { useBrand } from '@/lib/runtime-config';
 import { CHAIN_ID, contracts, MAX_POST_CHARACTERS, mediaStore } from '@/lib/config';
 import { prepareImage, type PreparedImage } from '@/lib/images';
 import { useProfile } from '@/lib/indexer';
@@ -157,6 +157,7 @@ export function Composer({
   autoFocus?: boolean;
   onPosted?: () => void;
 }) {
+  const { APP_NAME } = useBrand();
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
   const [image, setImage] = useState<PreparedImage | null>(null);

@@ -57,6 +57,8 @@ export type ImageView = {
 };
 
 export type PostView = {
+  /** Added by an instance's server read layer, never by the shared indexer. */
+  moderation?: { hidden: boolean; warning: string | null };
   id: string;
   author: AccountView;
   content: string | null;

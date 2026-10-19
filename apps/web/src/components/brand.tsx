@@ -1,7 +1,7 @@
 'use client';
 
 import { useId } from 'react';
-import { APP_NAME } from '@/lib/brand';
+import { useInstanceConfig, useBrand } from '@/lib/runtime-config';
 
 /**
  * The logo: a mark (two halves of a rounded tile, split by a gap, with a lens of concentric circles over the gap, in a
@@ -107,7 +107,10 @@ function MarkShapes({ id }: { id: string }) {
 
 /** The mark alone, for favicons, tight spaces and loading: `size` is its height in pixels. */
 export function Logo({ size = 28, title }: { size?: number; title?: string }) {
+  const config = useInstanceConfig();
   const id = useId().replace(/:/g, '');
+  if (config.iconUrl)
+    return <img src={config.iconUrl} width={size} height={size} alt={title || ''} />;
   return (
     <svg
       viewBox={`0 0 ${MARK.width} ${MARK.height}`}
@@ -130,7 +133,7 @@ export function Logo({ size = 28, title }: { size?: number; title?: string }) {
 export function Wordmark({
   height,
   className,
-  title = APP_NAME,
+  title,
   mark = true,
 }: {
   height?: number;
@@ -138,7 +141,27 @@ export function Wordmark({
   title?: string;
   mark?: boolean;
 }) {
+  const { APP_NAME } = useBrand();
+  const config = useInstanceConfig();
   const id = useId().replace(/:/g, '');
+  if (config.logoUrl)
+    return (
+      <img src={config.logoUrl} alt={title || APP_NAME} style={{ height }} className={className} />
+    );
+  if (APP_NAME !== 'Parallax')
+    return (
+      <span
+        className={className}
+        style={{
+          fontSize: height || 'clamp(24px, 6vw, 72px)',
+          lineHeight: 1.1,
+          overflowWrap: 'anywhere',
+          fontFamily: 'var(--font-display)',
+        }}
+      >
+        {APP_NAME}
+      </span>
+    );
   // The mark is ~2.4 cap heights tall, centred on the letters, then a gap of ~0.4 cap heights.
   const markScale = (CAP * 2.4) / MARK.height;
   const markWidth = MARK.width * markScale;
@@ -156,7 +179,7 @@ export function Wordmark({
       height={height ? (height * h) / CAP : undefined}
       className={className}
       role="img"
-      aria-label={title}
+      aria-label={title || APP_NAME}
     >
       {mark && (
         <g transform={`translate(0 ${top}) scale(${markScale})`}>

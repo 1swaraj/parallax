@@ -1,8 +1,8 @@
 import { feedAbi, MEDIA_CHUNK_BYTES, sponsorRouterAbi } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
 import { isAddress, isHex, parseEventLogs, type Address, type Hex } from 'viem';
-import { APP_NAME } from '@/lib/brand';
-import { contracts } from '@/lib/config';
+import { currentConfig } from '@/lib/server/instance-config';
+import { runtimeContracts as contracts } from '@/lib/server/contracts';
 import { sendAsRelayer } from '@/lib/server/chain';
 import {
   maxGasPerImagePost,
@@ -19,6 +19,7 @@ import {
 import { getSession } from '@/lib/server/session';
 import {
   assertMediaSponsored,
+  assertRelayContent,
   assertSponsoredCall,
   isMediaCall,
   sponsoredAccount,
@@ -45,13 +46,14 @@ export async function POST(request: Request) {
     assertSameOrigin(request);
     const { target, data } = (await request.json()) as { target?: string; data?: string };
     if (!target || !isAddress(target)) {
-      throw new HttpError(400, `${APP_NAME} can't pay the fee of that action`);
+      throw new HttpError(400, `${currentConfig().appName} can't pay the fee of that action`);
     }
     const maxBytes = isMediaCall(target) ? MAX_MEDIA_CALLDATA_BYTES : MAX_CALLDATA_BYTES;
     if (!data || !isHex(data) || (data.length - 2) / 2 > maxBytes) {
       throw new HttpError(400, 'Invalid or oversized call');
     }
     const kind = assertSponsoredCall(target, data);
+    await assertRelayContent(target, data);
     const account = await sponsoredAccount(await getSession());
     // An image costs ~7 text posts (up to two chunks of ~2.9M gas): a daily allowance per Account, in chunks.
     if (kind === 'media-chunk') {

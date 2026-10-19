@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAddressEqual, type Address } from 'viem';
 import { createSiweMessage } from 'viem/siwe';
 import { useConnection, useSignMessage } from 'wagmi';
-import { APP_NAME } from './brand';
+import { useBrand } from '@/lib/runtime-config';
 import { CHAIN_ID } from './config';
 
 export type Session = { owner: Address | null; account: Address | null };
@@ -30,17 +30,19 @@ export async function api<T>(path: string, init?: { method?: string; body?: unkn
  * UI never acts for an account the user isn't looking at.
  */
 export function useSession() {
+  const { APP_NAME } = useBrand();
   const queryClient = useQueryClient();
   const { address } = useConnection();
   const { mutateAsync: signMessage } = useSignMessage();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: SESSION_KEY,
     queryFn: () => api<Session>('/api/auth/session'),
-    staleTime: Infinity,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
   });
 
-  const session: Session = data ?? { owner: null, account: null };
+  const session: Session = !isError && data ? data : { owner: null, account: null };
   const otherWallet = !!address && !!session.owner && !isAddressEqual(address, session.owner);
   const owner = otherWallet ? null : session.owner;
   const account = otherWallet ? null : session.account;

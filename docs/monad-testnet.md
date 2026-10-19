@@ -19,8 +19,8 @@ transactions, compiler settings, ownership and client contract code hashes. No a
 3. Deploy **`apps/web`** using the existing Vercel instructions in the README. Use
    [`apps/web/.env.monad-testnet.example`](../apps/web/.env.monad-testnet.example) as the testnet settings template.
    Fill in `NEXT_PUBLIC_APP_URL`, `INDEXER_URL`, a random `SESSION_SECRET` of at least 32 characters,
-   `HEALTH_TOKEN`, and `DATABASE_URL` (the public TLS Postgres connection). Set these before building:
-   `NEXT_PUBLIC_CHAIN_ID=10143`, the browser RPC URL, and `INDEXER_URL` are baked into the client/proxy configuration.
+   `HEALTH_TOKEN`, and `DATABASE_URL` (the public TLS Postgres connection). Set `NEXT_PUBLIC_CHAIN_ID=10143` before building. Browser/server RPCs and the indexer URL now support runtime
+   configuration through the setup wizard and admin panel; existing environment variables remain overrides.
    A server RPC can be provided separately through `RPC_URL`. Use provider endpoints with sufficient capacity
    for the indexer and server; the public endpoint is suitable for initial checks.
 4. Initially keep **`RELAY_PAUSED=true`** and leave relayer keys unset. There are **no active relayers** at handoff.
@@ -31,7 +31,7 @@ transactions, compiler settings, ownership and client contract code hashes. No a
 5. When sponsorship is wanted, create a dedicated relayer wallet, provide its **public address** to the contract
    owner for allowlisting, fund it with testnet MON, and put its private key only in the web service's
    `RELAYER_PRIVATE_KEYS`. Set `SPONSOR_GAS_BUDGET_PER_HOUR` and retain shared Postgres, then set
-   `RELAY_PAUSED=false` and redeploy. One relayer is enough for the first trial. Do not use either deployment key
+   `RELAY_PAUSED=false` and restart, or remove that env override and unpause in the admin panel. One relayer is enough for the first trial. Do not use either deployment key
    as a service key. No relayer has been funded as part of this handoff.
 6. Smoke test signup, post/reply, follow, profile edit, and indexed reads. Use wallet-paid mode initially;
    repeat with sponsored actions after completing step 5. Run the repository's Postgres tests against a scratch

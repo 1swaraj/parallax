@@ -1,8 +1,9 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { sponsorRouterAbi } from '@lens-monad/protocol';
-import { formatEther, parseEther, type Address } from 'viem';
-import { APP_NAME } from '../brand';
-import { CHAIN_ID, contracts } from '../config';
+import { createPublicClient, http, formatEther, parseEther, type Address } from 'viem';
+import { getInstanceConfig, currentConfig } from './instance-config';
+import { CHAIN_ID } from '../config';
+import { runtimeContracts as contracts } from './contracts';
 import { publicClient } from './chain';
 import { database } from './db';
 import {
@@ -65,7 +66,8 @@ export function canSeeHealthDetails(authorization: string | null): boolean {
   return !!token && !!presented && timingSafeEqual(digest(presented), digest(token));
 }
 
-export function checkHealth(): Promise<Health> {
+export async function checkHealth(): Promise<Health> {
+  await getInstanceConfig();
   if (!cached || Date.now() - cached.at > CACHE_MS) {
     cached = { at: Date.now(), health: check() };
   }
@@ -164,7 +166,7 @@ async function check(): Promise<Health> {
   }
 
   return {
-    app: APP_NAME,
+    app: currentConfig().appName,
     healthy: problems.length === 0,
     problems,
     chainId: CHAIN_ID,
@@ -183,7 +185,7 @@ async function check(): Promise<Health> {
 
 async function checkRelayers(minBalance: bigint): Promise<RelayerHealth[]> {
   return Promise.all(
-    relayers().map(async ({ address }) => {
+    (await relayers()).map(async ({ address }) => {
       const [balance, allowlisted] = await Promise.all([
         attempt(`balance of ${address}`, () => publicClient.getBalance({ address })),
         attempt(`allowlist of ${address}`, () =>
@@ -209,8 +211,10 @@ async function checkRelayers(minBalance: bigint): Promise<RelayerHealth[]> {
  * The block the indexer reached on the app's chain (Ponder's /status lists it per chain), or the chains it indexes
  * instead: an indexer left on its default chain (PONDER_CHAIN_ID unset) still answers.
  */
-async function indexerStatus(): Promise<{ block: number } | { otherChains: number[] }> {
-  const response = await fetch(`${indexerUrl()}/status`, {
+async function indexerStatus(
+  url = indexerUrl()
+): Promise<{ block: number } | { otherChains: number[] }> {
+  const response = await fetch(`${url.replace(/\/+$/, '')}/status`, {
     cache: 'no-store',
     signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
   });
@@ -222,4 +226,31 @@ async function indexerStatus(): Promise<{ block: number } | { otherChains: numbe
   );
   const status = chains.find((entry) => entry.id === CHAIN_ID);
   return status ? { block: status.block.number } : { otherChains: chains.map((c) => c.id) };
+}
+
+/** The setup/admin check shares the health parser and timeout without changing saved config. */
+export async function checkNetworkSettings(config: {
+  serverRpcUrl: string;
+  publicRpcUrl: string;
+  indexerUrl: string;
+}) {
+  const checkRpc = async (url: string) => {
+    const client = createPublicClient({
+      transport: http(url, { timeout: CHECK_TIMEOUT_MS, retryCount: 0 }),
+    });
+    return client.getChainId();
+  };
+  const [browserChain, serverChain, indexer] = await Promise.all([
+    attempt('browser RPC', () => checkRpc(config.publicRpcUrl)),
+    attempt('server RPC', () => checkRpc(config.serverRpcUrl || config.publicRpcUrl)),
+    attempt('indexer', () => indexerStatus(config.indexerUrl)),
+  ]);
+  const ok =
+    browserChain === CHAIN_ID && serverChain === CHAIN_ID && indexer !== null && 'block' in indexer;
+  return {
+    ok,
+    message: ok
+      ? `Both RPCs are on chain ${CHAIN_ID}. Indexer reached block ${'block' in indexer! ? indexer!.block : '?'}.`
+      : `Check failed. Browser RPC chain: ${browserChain ?? 'unreachable'}; server RPC chain: ${serverChain ?? 'unreachable'}; indexer: ${indexer && 'block' in indexer ? 'connected' : 'unreachable or wrong chain'}. Expected chain ${CHAIN_ID}.`,
+  };
 }

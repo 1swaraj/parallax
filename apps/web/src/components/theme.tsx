@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useSyncExternalStore } from 'react';
+import { useInstanceConfig } from '@/lib/runtime-config';
 import { Icon } from './icons';
 
 export type Theme = 'light' | 'dark' | 'system';
@@ -8,12 +9,13 @@ export type Theme = 'light' | 'dark' | 'system';
 export const THEME_STORAGE_KEY = 'parallax-theme';
 
 /** Applied before paint (in <head>), so the page never flashes the other mode. Light is the default. */
-export const THEME_INIT_SCRIPT = `(function(){try{var s=localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});var d=s==='dark'||(s==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);document.documentElement.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
+export const THEME_INIT_SCRIPT = `(function(){try{var s=localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});s=s||document.documentElement.dataset.defaultTheme;var d=s==='dark'||(s==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);document.documentElement.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
 
 const listeners = new Set<() => void>();
 
 function readTheme(): Theme {
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  const stored =
+    window.localStorage.getItem(THEME_STORAGE_KEY) || document.documentElement.dataset.defaultTheme;
   return stored === 'dark' || stored === 'system' ? stored : 'light';
 }
 
@@ -25,7 +27,17 @@ function apply(theme: Theme) {
   document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
 }
 
+/** Update the operator default without replacing a user's explicit preference. */
+export function setDefaultTheme(theme: Theme) {
+  document.documentElement.dataset.defaultTheme = theme;
+  if (!window.localStorage.getItem(THEME_STORAGE_KEY)) {
+    apply(theme);
+    listeners.forEach((listener) => listener());
+  }
+}
+
 export function useTheme(): [Theme, (theme: Theme) => void] {
+  const { defaultTheme } = useInstanceConfig();
   const theme = useSyncExternalStore(
     (listener) => {
       listeners.add(listener);
@@ -38,7 +50,7 @@ export function useTheme(): [Theme, (theme: Theme) => void] {
       };
     },
     readTheme,
-    () => 'light' as const
+    () => defaultTheme
   );
   const setTheme = useCallback((next: Theme) => {
     window.localStorage.setItem(THEME_STORAGE_KEY, next);

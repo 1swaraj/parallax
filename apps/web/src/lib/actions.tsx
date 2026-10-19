@@ -25,14 +25,15 @@ import {
   type Hex,
   type Log,
 } from 'viem';
-import { useConfig, useConnection } from 'wagmi';
+import { useConfig, useConnection, useReadContract } from 'wagmi';
 import {
   getBytecode,
   sendTransaction,
   switchChain,
   waitForTransactionReceipt,
 } from 'wagmi/actions';
-import { CHAIN_ID, contracts, mediaStore } from './config';
+import { CHAIN_ID, contracts as defaultContracts, mediaStore } from './config';
+import { useNetwork } from './runtime-config';
 import { useProfile, waitForIndexer } from './indexer';
 import { api, useSession } from './session';
 
@@ -102,6 +103,7 @@ export function createdPostId(result: ActionResult): string | null {
  * wallet, then waits for the indexer so the UI shows the result.
  */
 export function useLensActions() {
+  const { contracts } = useNetwork();
   const config = useConfig();
   const queryClient = useQueryClient();
   const { chainId, address } = useConnection();
@@ -109,10 +111,22 @@ export function useLensActions() {
   const [gasMode] = useGasMode();
   const available = useSponsorship();
   const { data: profile } = useProfile(account, null);
-  // The app pays unless the user chose their wallet (Settings), the app can't pay right now, or the Account was
-  // created elsewhere without the SponsorRouter as manager.
-  const sponsored =
-    gasMode === 'sponsored' && available !== false && (profile?.account.sponsored ?? true);
+  // Accounts created elsewhere may not have the SponsorRouter as manager: their owner pays.
+  const { data: routerAllowed } = useReadContract({
+    address: account ?? undefined,
+    abi: accountAbi,
+    functionName: 'canExecuteTransactions',
+    args: [contracts.SponsorRouter],
+    query: { enabled: !!account, staleTime: 10_000 },
+  });
+  const sponsorshipAllowed =
+    routerAllowed ??
+    (isAddressEqual(contracts.SponsorRouter, defaultContracts.SponsorRouter)
+      ? profile?.account.sponsored
+      : undefined);
+  // The app pays unless the user chose their wallet (Settings), the app can't pay right now, or the Account
+  // doesn't have the SponsorRouter as manager.
+  const sponsored = gasMode === 'sponsored' && available !== false && (sponsorshipAllowed ?? true);
 
   const sendFromWallet = useCallback(
     async (to: Address, data: Hex) => {
@@ -219,7 +233,9 @@ export function useLensActions() {
   );
 
   const signUp = useCallback(
-    async (params: { username: string } & Profile) => {
+    async (
+      params: { username: string; inviteCode?: string; turnstileToken?: string } & Profile
+    ) => {
       if (!owner) {
         throw new Error('Sign in first');
       }
@@ -234,6 +250,7 @@ export function useLensActions() {
           return result.account;
         }
         // Direct: the owner sends LensFactory's transaction, and still adds the SponsorRouter for later.
+        await api('/api/signup', { method: 'PUT', body: params });
         const receipt = await sendFromWallet(
           contracts.LensFactory,
           encodeFunctionData({
@@ -262,7 +279,7 @@ export function useLensActions() {
           try {
             await api('/api/auth/session', {
               method: 'PUT',
-              body: { account: created.args.account },
+              body: { account: created.args.account, signup: true },
             });
             break;
           } catch (error) {
@@ -323,5 +340,14 @@ export function useLensActions() {
     }
   }, [account, sendFromWallet, queryClient]);
 
-  return { run, uploadMedia, signUp, updateProfile, enableSponsorship, sponsored, account };
+  return {
+    run,
+    uploadMedia,
+    signUp,
+    updateProfile,
+    enableSponsorship,
+    sponsorshipAllowed,
+    sponsored,
+    account,
+  };
 }

@@ -6,7 +6,7 @@ import { Composer } from '@/components/composer';
 import { NewPostsPill, PostList } from '@/components/lists';
 import { useAuthModal } from '@/components/modals';
 import { Button, buttonClassName, EmptyState, PageHeader, Tabs } from '@/components/ui';
-import { APP_NAME } from '@/lib/brand';
+import { useBrand } from '@/lib/runtime-config';
 import { useFollowingTimeline, useLatestPostId, useTimeline } from '@/lib/indexer';
 import { useSession } from '@/lib/session';
 import { usePageTitle } from '@/lib/title';
@@ -14,6 +14,7 @@ import { usePageTitle } from '@/lib/title';
 type Feed = 'everyone' | 'following';
 
 export default function HomePage() {
+  const { APP_NAME } = useBrand();
   const { owner, account } = useSession();
   const openAuth = useAuthModal();
   const [feed, setFeed] = useState<Feed>('everyone');

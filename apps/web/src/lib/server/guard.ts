@@ -1,7 +1,9 @@
 import { describeLensError, lensErrorName } from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
-import { APP_NAME } from '../brand';
-import { appUrl, booleanEnv, missingSponsorSettings, relayerKeys } from './env';
+import { ZodError } from 'zod';
+import { currentConfig, getInstanceConfig } from './instance-config';
+import { appUrl, booleanEnv, missingSponsorSettings } from './env';
+import { relayers } from './relayers';
 
 export class HttpError extends Error {
   constructor(
@@ -39,13 +41,14 @@ export function isPaused() {
  * Whether the relayers can pay right now: not paused, set up to bound their spending, and with keys. The client asks
  * (/api/sponsorship) to send actions from the user's wallet when they can't, rather than have them refused.
  */
-export function isSponsorshipAvailable() {
+export async function isSponsorshipAvailable() {
+  await getInstanceConfig();
   if (isPaused() || missingSponsorSettings().length > 0) {
     return false;
   }
   try {
-    relayerKeys();
-    return true;
+    // Keys set in the admin panel (encrypted) count, not only RELAYER_PRIVATE_KEYS.
+    return (await relayers()).length > 0;
   } catch {
     return false;
   }
@@ -56,7 +59,7 @@ export function assertSponsorshipAvailable() {
   if (isPaused()) {
     throw new HttpError(
       503,
-      `${APP_NAME} isn't paying network fees right now. Try again soon, or pay from your wallet (Settings).`
+      `${currentConfig().appName} isn't paying network fees right now. Try again soon, or pay from your wallet (Settings).`
     );
   }
   const missing = missingSponsorSettings();
@@ -64,7 +67,7 @@ export function assertSponsorshipAvailable() {
     console.error(`Sponsored actions are refused: set ${missing.join(' and ')}`);
     throw new HttpError(
       503,
-      `${APP_NAME} can't pay network fees here yet. Pay from your wallet (Settings).`
+      `${currentConfig().appName} can't pay network fees here yet. Pay from your wallet (Settings).`
     );
   }
 }
@@ -72,8 +75,18 @@ export function assertSponsorshipAvailable() {
 /** Runs a route handler, turning thrown errors into JSON responses. */
 export async function handle(run: () => Promise<Response>): Promise<Response> {
   try {
+    await getInstanceConfig();
     return await run();
   } catch (error) {
+    if (error instanceof ZodError)
+      return NextResponse.json(
+        {
+          error: error.issues
+            .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+            .join('; '),
+        },
+        { status: 400 }
+      );
     if (error instanceof HttpError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }

@@ -5,25 +5,8 @@ export const CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 31337);
 export const IS_LOCAL = CHAIN_ID === 31337;
 
 const baseChain = getChain(CHAIN_ID);
-const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL ?? baseChain.rpcUrls.default.http[0]!;
-
-export const chain: Chain = defineChain({ ...baseChain, rpcUrls: { default: { http: [rpcUrl] } } });
-
-/**
- * The block explorer the app links to: NEXT_PUBLIC_EXPLORER_URL, else Monadscan on mainnet and testnet
- * (https://docs.monad.xyz/developer-essentials/network-information, .../testnets). None on the local chain.
- */
-const DEFAULT_EXPLORERS: Partial<Record<number, string>> = {
-  143: 'https://monadscan.com',
-  10143: 'https://testnet.monadscan.com',
-};
-export const EXPLORER_URL =
-  (process.env.NEXT_PUBLIC_EXPLORER_URL || DEFAULT_EXPLORERS[CHAIN_ID])?.replace(/\/+$/, '') ||
-  null;
-
-export function explorerAddressUrl(address: string) {
-  return EXPLORER_URL ? `${EXPLORER_URL}/address/${address}` : null;
-}
+// Chain identity is fixed per build. Runtime RPCs and explorer links come from instance config.
+export const chain: Chain = defineChain(baseChain);
 
 export const deployment = getDeployment(CHAIN_ID);
 export const contracts = deployment.contracts;

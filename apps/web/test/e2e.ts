@@ -5,7 +5,7 @@
 //   HEALTH_TOKEN=... pnpm --filter @lens-monad/web test:e2e
 
 import { getDeployment } from '@lens-monad/protocol';
-import { createPublicClient, http } from 'viem';
+import { createPublicClient, http, type Address } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';
 import type { Health } from '../src/lib/server/health';
@@ -33,7 +33,12 @@ export const { contracts } = getDeployment(CHAIN_ID);
 export const chainClient = createPublicClient({ transport: http(RPC_URL) });
 
 /** A browser: a wallet, and the session cookie the app sets. */
-export function user(wallet = privateKeyToAccount(generatePrivateKey())) {
+export function user(
+  wallet: {
+    address: Address;
+    signMessage: ReturnType<typeof privateKeyToAccount>['signMessage'];
+  } = privateKeyToAccount(generatePrivateKey())
+) {
   let cookie = '';
   async function call<T>(
     path: string,

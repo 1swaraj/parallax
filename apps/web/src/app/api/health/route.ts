@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { findAdmin } from '@/lib/server/admin';
 import { canSeeHealthDetails, checkHealth } from '@/lib/server/health';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,10 @@ export async function GET(request: Request) {
   const health = await checkHealth();
   const status = health.healthy ? 'ok' : 'degraded';
   return NextResponse.json(
-    canSeeHealthDetails(request.headers.get('authorization')) ? { status, ...health } : { status },
+    canSeeHealthDetails(request.headers.get('authorization')) ||
+      !!(await findAdmin().catch(() => null))
+      ? { status, ...health }
+      : { status },
     { status: health.healthy ? 200 : 503, headers: { 'cache-control': 'no-store' } }
   );
 }

@@ -5,7 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useConnect, useConnection, useConnectors, useDisconnect } from 'wagmi';
 import { useGasMode, useLensActions, useSponsorship } from '@/lib/actions';
-import { APP_NAME } from '@/lib/brand';
+import { useBrand } from '@/lib/runtime-config';
 import { MAX_BIO_CHARACTERS, MAX_NAME_CHARACTERS } from '@/lib/config';
 import { useProfile } from '@/lib/indexer';
 import { NEW_PASSKEY, PASSKEY } from '@/lib/passkey';
@@ -14,6 +14,7 @@ import { atHandle, Avatar, displayName } from './account';
 import { Icon, type IconName } from './icons';
 import { useToast } from './toast';
 import { Button, Dropdown, Spinner } from './ui';
+import { Turnstile } from './moderation';
 
 function useDebounced<T>(value: T, delay = 300) {
   const [debounced, setDebounced] = useState(value);
@@ -112,6 +113,7 @@ export function Field({
 }
 
 export function CreateAccountForm({ onCreated }: { onCreated?: () => void }) {
+  const { APP_NAME } = useBrand();
   const toast = useToast();
   const { signUp } = useLensActions();
   const [gasMode] = useGasMode();
@@ -120,19 +122,42 @@ export function CreateAccountForm({ onCreated }: { onCreated?: () => void }) {
   const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [challenge, setChallenge] = useState(0);
+  const { data: access } = useQuery({
+    queryKey: ['signup-policy'],
+    queryFn: async () =>
+      (await fetch('/api/signup')).json() as Promise<{
+        signupMode: string;
+        turnstileEnabled: boolean;
+        turnstileSiteKey: string;
+      }>,
+  });
   const invalid = username ? usernameError(username) : null;
   const { taken, checking } = useUsernameTaken(username);
 
   const create = useMutation({
-    mutationFn: () => signUp({ username, name, bio }),
+    mutationFn: () => signUp({ username, name, bio, inviteCode, turnstileToken }),
     onSuccess: () => {
       toast.show(`Welcome, @${username}`);
       onCreated?.();
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error) => {
+      toast.error(error.message);
+      setTurnstileToken('');
+      setChallenge((v) => v + 1);
+    },
   });
 
-  const ready = username && !invalid && !taken && !checking && !create.isPending;
+  const ready =
+    username &&
+    !invalid &&
+    !taken &&
+    !checking &&
+    !create.isPending &&
+    access &&
+    (!access.turnstileEnabled || turnstileToken);
   return (
     <form
       className="flex flex-col gap-6"
@@ -155,6 +180,24 @@ export function CreateAccountForm({ onCreated }: { onCreated?: () => void }) {
         error={invalid ?? (taken ? 'That username is taken. Try another one.' : null)}
         hint="At least 4 characters: lowercase letters, digits, _ and -."
       />
+      {access?.signupMode === 'invite' && (
+        <Field name="inviteCode" label="Invite code" value={inviteCode} onChange={setInviteCode} />
+      )}
+      {access?.signupMode === 'allowlist' && (
+        <p className="text-sm text-text-secondary">
+          This instance admits allowlisted wallets. The server checks your wallet before creating an
+          account.
+        </p>
+      )}
+      {access?.signupMode === 'token' && (
+        <p className="text-sm text-text-secondary">
+          This instance requires a token balance. Your wallet is checked at sign-up and when your
+          session refreshes.
+        </p>
+      )}
+      {access?.turnstileEnabled && (
+        <Turnstile key={challenge} siteKey={access.turnstileSiteKey} onToken={setTurnstileToken} />
+      )}
       <Field
         name="name"
         label="Display name (optional)"
@@ -274,6 +317,7 @@ export function connectorIcon(connector: { type: string }): IconName {
  * `onConnected` runs once a connector connects; the sign-in flow takes over from there.
  */
 export function SignInOptions({ onConnected }: { onConnected?: () => void }) {
+  const { APP_NAME } = useBrand();
   const connectors = useConnectors();
   const { mutate: connect, isPending, variables } = useConnect();
   const available = useSponsorship();
@@ -348,6 +392,7 @@ export function SignInOptions({ onConnected }: { onConnected?: () => void }) {
 
 /** Connect a wallet, sign in (SIWE, one free signature), create an account if the wallet has none. */
 export function AuthFlow({ onDone }: { onDone: () => void }) {
+  const { APP_NAME } = useBrand();
   const { isConnected, address } = useConnection();
   const { mutate: disconnect } = useDisconnect();
   const { owner, account, needsSignIn, signIn } = useSession();

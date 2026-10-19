@@ -6,7 +6,7 @@ import path from 'node:path';
 
 export const APP = process.env.APP_URL ?? 'http://localhost:3000';
 export const RPC_URL = process.env.RPC_URL ?? 'http://127.0.0.1:8545';
-const SHOTS = path.resolve(process.env.SHOTS_DIR ?? './shots');
+export const SHOTS = path.resolve(process.env.SHOTS_DIR ?? './shots');
 
 /** Opens a 1280×900 page. `setup(context)` runs before the page exists, e.g. to inject a wallet. */
 export async function open(setup = async () => {}) {
