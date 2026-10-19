@@ -14,8 +14,12 @@ export async function open(setup = async () => {}) {
   fs.mkdirSync(SHOTS, { recursive: true });
   const browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH,
-    // A single process: some sandboxes refuse Chromium's helper processes.
-    args: ['--single-process', '--no-sandbox', '--disable-gpu'],
+    // Normal Chromium processes work with authenticated proxies. Constrained sandboxes can opt in to one process.
+    args: [
+      '--no-sandbox',
+      '--disable-gpu',
+      ...(process.env.CHROMIUM_SINGLE_PROCESS === '1' ? ['--single-process'] : []),
+    ],
     // Behind an authenticating proxy (e.g. a sandbox), external images (avatars) load through it.
     ...(process.env.HTTPS_PROXY
       ? (() => {

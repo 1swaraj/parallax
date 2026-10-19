@@ -14,9 +14,9 @@ import {
   type Log,
 } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
-import { currentConfig } from '@/lib/server/instance-config';
+import { currentConfig } from './instance-config';
 import { chain, IS_LOCAL } from '../config';
-import { runtimeContracts as contracts } from './contracts';
+import { getSponsorshipConfig } from './sponsorship-config';
 import { serverRpcUrl } from './env';
 import { HttpError } from './guard';
 import { nonceError, sendWithNonce } from './nonces';
@@ -137,17 +137,17 @@ export async function sendAsRelayer<
 
 /**
  * The router refuses a relayer it doesn't allowlist with the same error as an Account acting for another
- * (InvalidMsgSender). When that's the cause (a key missing from the allowlist, or revoked by the Safe), it's ours.
+ * (InvalidMsgSender). When that's the cause (a key missing from the allowlist, or revoked by its owner), it's ours.
  */
 async function assertRelayerAllowed(target: Address, relayer: PrivateKeyAccount, error: unknown) {
   if (
-    !isAddressEqual(target, contracts.SponsorRouter) ||
+    !isAddressEqual(target, (await getSponsorshipConfig()).sponsorRouter) ||
     lensErrorName(error) !== 'InvalidMsgSender'
   ) {
     return;
   }
   const allowed = await publicClient.readContract({
-    address: contracts.SponsorRouter,
+    address: (await getSponsorshipConfig()).sponsorRouter,
     abi: sponsorRouterAbi,
     functionName: 'isRelayer',
     args: [relayer.address],
@@ -213,6 +213,6 @@ export async function isSponsored(account: Address) {
     address: account,
     abi: accountAbi,
     functionName: 'canExecuteTransactions',
-    args: [contracts.SponsorRouter],
+    args: [(await getSponsorshipConfig()).sponsorRouter],
   });
 }

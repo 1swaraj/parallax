@@ -112,15 +112,16 @@ export function useLensActions() {
   const available = useSponsorship();
   const { data: profile } = useProfile(account, null);
   // Accounts created elsewhere may not have the SponsorRouter as manager: their owner pays.
-  const { data: routerAllowed } = useReadContract({
+  const permission = useReadContract({
+    chainId: CHAIN_ID,
     address: account ?? undefined,
     abi: accountAbi,
     functionName: 'canExecuteTransactions',
     args: [contracts.SponsorRouter],
-    query: { enabled: !!account, staleTime: 10_000 },
+    query: { enabled: !!account, staleTime: 5_000, refetchInterval: 15_000 },
   });
   const sponsorshipAllowed =
-    routerAllowed ??
+    permission.data ??
     (isAddressEqual(contracts.SponsorRouter, defaultContracts.SponsorRouter)
       ? profile?.account.sponsored
       : undefined);
@@ -177,6 +178,9 @@ export function useLensActions() {
       if (!account) {
         throw new Error('Sign in with a Lens account first');
       }
+      if (gasMode === 'sponsored' && !permission.isSuccess) {
+        throw new Error('Checking network fee permissions. Try again in a moment.');
+      }
       const resolved = typeof call === 'function' ? call(account) : call;
       try {
         const result = await send(account, resolved);
@@ -186,7 +190,7 @@ export function useLensActions() {
         throw new Error(describeLensError(error));
       }
     },
-    [account, send, queryClient]
+    [account, gasMode, permission.isSuccess, send, queryClient]
   );
 
   /**
@@ -261,7 +265,7 @@ export function useLensActions() {
               owner,
               username: params.username,
               metadataURI: toDataURI(accountMetadata(params)),
-              sponsorRouter: contracts.SponsorRouter,
+              sponsorRouter: (await api<{ sponsorRouter: Address }>('/api/instance')).sponsorRouter,
             }),
           })
         );
@@ -304,6 +308,9 @@ export function useLensActions() {
         throw new Error('Sign in with a Lens account first');
       }
       try {
+        if (gasMode === 'sponsored' && !permission.isSuccess) {
+          throw new Error('Checking network fee permissions. Try again in a moment.');
+        }
         let blockNumber: bigint;
         if (sponsored) {
           blockNumber = (await relay('/api/profile', params)).blockNumber;
@@ -320,7 +327,7 @@ export function useLensActions() {
         throw new Error(describeLensError(error));
       }
     },
-    [account, sponsored, relay, sendFromWallet, queryClient]
+    [account, sponsored, gasMode, permission.isSuccess, relay, sendFromWallet, queryClient]
   );
 
   /** Adds the SponsorRouter as manager, from the owner's wallet, so that the relayer can pay from then on. */
@@ -332,13 +339,17 @@ export function useLensActions() {
       const data = encodeFunctionData({
         abi: accountAbi,
         functionName: 'addAccountManager',
-        args: [contracts.SponsorRouter, SPONSOR_ROUTER_PERMISSIONS],
+        args: [
+          (await api<{ sponsorRouter: Address }>('/api/instance')).sponsorRouter,
+          SPONSOR_ROUTER_PERMISSIONS,
+        ],
       });
       await waitForIndexer(queryClient, (await sendFromWallet(account, data)).blockNumber);
+      await permission.refetch();
     } catch (error) {
       throw new Error(describeLensError(error));
     }
-  }, [account, sendFromWallet, queryClient]);
+  }, [account, sendFromWallet, queryClient, permission]);
 
   return {
     run,

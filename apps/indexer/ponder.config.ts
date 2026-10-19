@@ -28,7 +28,16 @@ const LOCAL_CHAIN_ID = 31337;
 const chainId = Number(process.env.PONDER_CHAIN_ID ?? LOCAL_CHAIN_ID);
 const isLocal = chainId === LOCAL_CHAIN_ID;
 const { contracts, deploymentBlock } = getDeployment(chainId);
-const startBlock = deploymentBlock;
+// Local fork tests can start after the shared deployment without changing committed address books.
+const testStart = process.env.PONDER_TEST_START_BLOCK;
+if (
+  testStart &&
+  (!(process.env.PONDER_RPC_URL ?? '').match(/^http:\/\/(127\.0\.0\.1|localhost):\d+\/?$/) ||
+    !/^\d+$/.test(testStart))
+) {
+  throw new Error('PONDER_TEST_START_BLOCK is only allowed with a loopback test RPC');
+}
+const startBlock = testStart ? Number(testStart) : deploymentBlock;
 
 function rpcUrls() {
   const urls = (process.env.PONDER_RPC_URL ?? '')

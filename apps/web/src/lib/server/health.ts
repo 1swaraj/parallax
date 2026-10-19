@@ -1,3 +1,4 @@
+import { getSponsorshipConfig } from './sponsorship-config';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { sponsorRouterAbi } from '@lens-monad/protocol';
 import { createPublicClient, http, formatEther, parseEther, type Address } from 'viem';
@@ -5,7 +6,7 @@ import { getInstanceConfig, currentConfig } from './instance-config';
 import { CHAIN_ID } from '../config';
 import { runtimeContracts as contracts } from './contracts';
 import { publicClient } from './chain';
-import { database } from './db';
+import { database, migrationsApplied } from './db';
 import {
   gasBudgetPerHour,
   healthToken,
@@ -38,7 +39,8 @@ export type Health = {
   paused: boolean;
   /** Whether nonces, rate limits and the gas budget are in Postgres (DATABASE_URL), shared by every instance. */
   sharedState: boolean;
-  database: { ok: boolean } | null;
+  database: { ok: boolean; migrated: boolean } | null;
+  sponsorRouter: Address | null;
   relayers: RelayerHealth[];
   indexer: { block: number | null; lag: number | null };
   gas: { usedThisHour: string | null; budgetPerHour: string | null };
@@ -95,7 +97,9 @@ async function check(): Promise<Health> {
   const maxLag = numberEnv('INDEXER_MAX_LAG_BLOCKS', 50);
   const sql = database();
 
-  const [chainId, head, relayerList, indexer, databaseOk, used] = await Promise.all([
+  const config = await attempt('instance router', getSponsorshipConfig);
+  if (!config) problems.push('The instance router configuration is invalid');
+  const [chainId, head, relayerList, indexer, databaseStatus, used] = await Promise.all([
     attempt('chain id', () => publicClient.getChainId()),
     attempt('head', () => publicClient.getBlockNumber({ cacheTime: 0 })),
     attempt('relayers', () => checkRelayers(minBalance)),
@@ -103,7 +107,7 @@ async function check(): Promise<Health> {
     sql
       ? attempt('database', async () => {
           await sql`SELECT 1`;
-          return true;
+          return { migrated: await migrationsApplied(sql) };
         })
       : null,
     attempt('gas', () => serverState().gasBudget.usedThisHour()),
@@ -137,8 +141,10 @@ async function check(): Promise<Health> {
   } else if (lag !== null && lag > maxLag) {
     problems.push(`The indexer is ${lag} blocks behind`);
   }
-  if (sql && !databaseOk) {
+  if (sql && !databaseStatus) {
     problems.push('The database is unreachable');
+  } else if (databaseStatus && !databaseStatus.migrated) {
+    problems.push('Database migrations are missing; run pnpm db:migrate');
   }
   let budget: bigint | null = null;
   try {
@@ -173,7 +179,10 @@ async function check(): Promise<Health> {
     head: head === null ? null : Number(head),
     paused: isPaused(),
     sharedState: sql !== null,
-    database: sql ? { ok: databaseOk === true } : null,
+    database: sql
+      ? { ok: databaseStatus !== null, migrated: databaseStatus?.migrated === true }
+      : null,
+    sponsorRouter: config?.sponsorRouter ?? null,
     relayers: relayerList ?? [],
     indexer: { block: indexed, lag },
     gas: {
@@ -188,9 +197,9 @@ async function checkRelayers(minBalance: bigint): Promise<RelayerHealth[]> {
     (await relayers()).map(async ({ address }) => {
       const [balance, allowlisted] = await Promise.all([
         attempt(`balance of ${address}`, () => publicClient.getBalance({ address })),
-        attempt(`allowlist of ${address}`, () =>
+        attempt(`allowlist of ${address}`, async () =>
           publicClient.readContract({
-            address: contracts.SponsorRouter,
+            address: (await getSponsorshipConfig()).sponsorRouter,
             abi: sponsorRouterAbi,
             functionName: 'isRelayer',
             args: [address],

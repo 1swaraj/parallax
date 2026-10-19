@@ -17,8 +17,8 @@ export const HEALTH_TOKEN = process.env.HEALTH_TOKEN;
 export type HealthDetails = Health & { status: 'ok' | 'degraded' };
 
 /** /api/health with its details. */
-export async function health(): Promise<{ status: number; body: HealthDetails }> {
-  const response = await fetch(`${APP}/api/health`, {
+export async function health(app = APP): Promise<{ status: number; body: HealthDetails }> {
+  const response = await fetch(`${app}/api/health`, {
     headers: HEALTH_TOKEN ? { authorization: `Bearer ${HEALTH_TOKEN}` } : {},
   });
   const body = (await response.json()) as HealthDetails;
@@ -37,7 +37,8 @@ export function user(
   wallet: {
     address: Address;
     signMessage: ReturnType<typeof privateKeyToAccount>['signMessage'];
-  } = privateKeyToAccount(generatePrivateKey())
+  } = privateKeyToAccount(generatePrivateKey()),
+  app = APP
 ) {
   let cookie = '';
   async function call<T>(
@@ -47,8 +48,8 @@ export function user(
     const headers: Record<string, string> = {};
     if (cookie) headers.cookie = cookie;
     if (init.body !== undefined) headers['content-type'] = 'application/json';
-    if (init.origin !== null) headers.origin = init.origin ?? APP;
-    const response = await fetch(`${APP}${path}`, {
+    if (init.origin !== null) headers.origin = init.origin ?? app;
+    const response = await fetch(`${app}${path}`, {
       method: init.method ?? 'GET',
       headers,
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
@@ -62,8 +63,8 @@ export function user(
     const message = createSiweMessage({
       address: wallet.address,
       chainId: CHAIN_ID,
-      domain: new URL(APP).host,
-      uri: APP,
+      domain: new URL(app).host,
+      uri: app,
       nonce: body.nonce,
       version: '1',
     });
@@ -75,9 +76,13 @@ export function user(
   return { wallet, call, signIn };
 }
 
-export async function indexed<T>(path: string, until: (value: T) => boolean): Promise<T> {
+export async function indexed<T>(
+  path: string,
+  until: (value: T) => boolean,
+  app = APP
+): Promise<T> {
   for (let i = 0; i < 50; i++) {
-    const response = await fetch(`${APP}/indexer${path}`);
+    const response = await fetch(`${app}/indexer${path}`);
     if (response.ok) {
       const value = (await response.json()) as T;
       if (until(value)) return value;

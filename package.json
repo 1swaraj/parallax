@@ -16,16 +16,23 @@
     "web": "pnpm --filter @lens-monad/web dev",
     "test": "pnpm -r --if-present test",
     "test:e2e": "pnpm --filter @lens-monad/protocol test:e2e",
-    "typecheck": "pnpm -r --if-present typecheck",
+    "typecheck": "pnpm -r --if-present typecheck && tsc --noEmit -p scripts/tsconfig.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "seed": "node --import tsx scripts/seed.ts",
     "seed:likes": "node --import tsx scripts/seed.ts --likes",
-    "admin:reset-owner": "pnpm --filter @lens-monad/web admin:reset-owner"
+    "admin:reset-owner": "pnpm --filter @lens-monad/web admin:reset-owner",
+    "instance:deploy-router": "node --env-file-if-exists=apps/web/.env.local --import tsx scripts/instance-deploy-router.ts",
+    "doctor": "node --env-file-if-exists=apps/web/.env.local --import tsx scripts/doctor.ts",
+    "db:migrate": "node --env-file-if-exists=apps/web/.env.local --import tsx scripts/db-migrate.ts",
+    "instance:build-router": "node scripts/build-instance-router.mjs",
+    "test:instances": "node --import tsx scripts/test-instances.ts"
   },
   "devDependencies": {
+    "@types/node": "^22.20.5",
     "prettier": "^3.6.0",
     "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
     "viem": "^2.57.4"
   }
 }

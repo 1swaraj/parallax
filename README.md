@@ -53,8 +53,8 @@ blocker, so a call can only ever act for the Account that makes it. It's sent on
 
 - **Sponsored** (default): the browser posts `{ target, data }` to `/api/relay`. The server checks the session (signed
   in with SIWE), checks onchain that the session's wallet still owns the Account and that the router is its manager,
-  then a relayer sends `SponsorRouter.execute(account, target, data)`. The router only calls the functions the Safe
-  allowlisted at launch.
+  then a relayer sends `SponsorRouter.execute(account, target, data)`. The router only calls its owner's
+  allowlisted functions.
 - **Direct**: the user's wallet sends `Account.executeTransaction(target, 0, data)` and pays the gas in MON. No server
   involved. Settings switches between the two.
 
@@ -184,6 +184,7 @@ works, it needs no MON: signing up and posting are sponsored.
 ```sh
 pnpm typecheck
 pnpm test                                     # unit tests
+pnpm test:instances                           # two routers, two DBs, one indexer (see below)
 pnpm test:e2e                                 # protocol flow against the local chain
 pnpm --filter @lens-monad/indexer test:e2e    # the indexer's API (chain and indexer running)
 pnpm --filter @lens-monad/web test:e2e        # the app's server end to end (chain, indexer and web running)
@@ -199,10 +200,62 @@ app. `lens-monad-protocol` is private, so the end-to-end job needs a `LENS_CONTR
 
 The web end-to-end tests read `/api/health`'s details, so run them with the server's `HEALTH_TOKEN` set. The UI
 walkthrough needs `playwright-core` and a Chromium (`PLAYWRIGHT_CORE`, `CHROMIUM_PATH`), and saves screenshots
-to `SHOTS_DIR`. It signs in with a test wallet it injects into the page, a fresh key each run, and reads the chain at
+to `SHOTS_DIR`. `CHROMIUM_SINGLE_PROCESS=1` is available for sandboxes that cannot launch browser helper
+processes; leave it unset when using an authenticated proxy. It signs in with a test wallet it injects into the page,
+a fresh key each run, and reads the chain at
 `RPC_URL`.
 
 ## Running your own instance
+
+Light mode is the default: **one Vercel project and one Postgres database**, reading the shared Lens
+contracts through a public indexer. You do not run Ponder or Railway. Accounts and posts are shared;
+likes and like notifications stay in your instance's database. See the
+[self-hosting design](docs/self-hosting-design.md) for the verified router and source-stamp behavior.
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2F1swaraj%2Fparallax&root-directory=apps%2Fweb&env=INSTANCE_SECRET%2CSETUP_TOKEN%2CNEXT_PUBLIC_CHAIN_ID%2CNEXT_PUBLIC_RPC_URL%2CINDEXER_URL%2CRELAY_PAUSED&envDescription=Generate+INSTANCE_SECRET+and+SETUP_TOKEN+separately+with+openssl+rand+-hex+32.+Supply+the+shared+testnet+indexer+URL.+Neon+supplies+DATABASE_URL.&envLink=https%3A%2F%2Fgithub.com%2F1swaraj%2Fparallax%23instance-secrets&envDefaults=%7B%22NEXT_PUBLIC_CHAIN_ID%22%3A%2210143%22%2C%22NEXT_PUBLIC_RPC_URL%22%3A%22https%3A%2F%2Ftestnet-rpc.monad.xyz%22%2C%22INDEXER_URL%22%3A%22%22%2C%22RELAY_PAUSED%22%3A%22true%22%7D&stores=%5B%7B%22type%22%3A%22integration%22%2C%22integrationSlug%22%3A%22neon%22%2C%22productSlug%22%3A%22neon%22%2C%22protocol%22%3A%22storage%22%7D%5D)
+
+The button clones this repository, selects `apps/web`, asks for the bootstrap secrets and connects
+[Neon from the Vercel Marketplace](https://vercel.com/marketplace/neon). Neon supplies the pooled
+`DATABASE_URL`; older connections using `POSTGRES_URL` also work. The verified integration ID is
+`oac_3sK3gnG06emjIEVL09jjntDD`; the button uses Vercel's
+[store parameters](https://vercel.com/docs/deploy-button/source#store-product-integration) with both
+integration and product slug `neon`, without a variable prefix.
+
+**A public testnet indexer URL has not yet been published in this repository.** Enter the operator's
+URL in `INDEXER_URL`; the button deliberately leaves it blank. Check its `/ready` returns 200 and its
+`/status` includes chain 10143. Chain and browser RPC defaults are supplied by the button. This is the
+remaining prerequisite for a deploy button with a shared-indexer default; do not use a guessed host.
+
+1. Generate the two secrets below, click the button, and enter the indexer URL. Keep sponsoring paused
+   until you have your own funded relayers. The existing signup form supports **Pay from my wallet**.
+2. Use the Vercel settings in [Deploying to testnet or mainnet](#deploying-to-testnet-or-mainnet).
+   Choose a function region near Postgres. Set `NEXT_PUBLIC_APP_URL` to your Production domain once
+   known; leave it unset for previews so sign-in uses the request's host.
+3. From the fork, with its environment loaded, run `pnpm db:migrate` and `pnpm run doctor`. Normal web
+   operations also create the web tables on first use. Doctor exits nonzero for missing migrations,
+   unreachable/wrong-chain RPC, indexer lag, missing sponsorship settings, or low/unlisted relayers.
+   Deliberately paused, unconfigured sponsorship still appears degraded in health; inspect the details.
+4. Open `/setup` to claim the instance and set its name, network and limits
+   ([Setup and administration](#setup-and-administration)). When ready, configure independent sponsorship
+   below. Environment variables remain bootstrap values and overrides.
+
+### Instance secrets
+
+Run this **twice**, keeping a different output for each variable:
+
+```sh
+openssl rand -hex 32
+```
+
+Put one value in `INSTANCE_SECRET` (instance secret encryption and, as a bootstrap fallback, session
+cookies), and the other in `SETUP_TOKEN` (the first owner's claim at `/setup`).
+Never put either in a public variable, a URL, a commit or a deploy-button default. Existing
+`SESSION_SECRET` remains supported and takes precedence for session cookies. Set `HEALTH_TOKEN`
+separately if an uptime monitor needs authenticated details. The
+[deploy-button environment docs](https://vercel.com/docs/deploy-button/environment-variables) describe
+the required fields and nonsecret defaults.
+
+### Setup and administration
 
 Set `NEXT_PUBLIC_CHAIN_ID` for the network before building. Supply `DATABASE_URL` and a random `INSTANCE_SECRET`
 of at least 32 characters (`openssl rand -hex 32`) to the web server. Keep both private and back up `INSTANCE_SECRET`
@@ -348,13 +401,120 @@ wizard, changes the brand, checks it on Home, pauses a sponsored post, then unpa
 secrets, email opt-in/unsubscribe and alert debounce against real Postgres. Use a dedicated test database: the
 instance tests clear their instance/admin/email tables.
 
+### Independent sponsorship
+
+Each instance can own its router and allowlist its own relayers. No approval from the shared router's
+owner is required. The user consents to each router separately; Settings reads that instance's router
+permission from the chain, rather than the shared indexer's original-router flag.
+
+Create a dedicated owner wallet and relayer wallets. Fund them on the selected chain, and keep the
+owner separate from the service relayers. With a Foundry keystore:
+
+```sh
+NEXT_PUBLIC_CHAIN_ID=10143 \
+INSTANCE_DEPLOYER_KEYSTORE=my-instance-owner \
+INSTANCE_RELAYER_ADDRESSES=0xYourRelayerAddress,0xAnotherRelayerAddress \
+pnpm instance:deploy-router
+```
+
+Foundry prompts for the keystore password; `INSTANCE_KEYSTORE_PASSWORD_FILE` optionally points to an
+existing password file. Alternatively supply `INSTANCE_DEPLOYER_PRIVATE_KEY` through your shell's
+secret injection. Neither option writes a private key. The viem script checks the RPC chain ID,
+reads the shared router's implementation and `getFunctions()`, deploys a fixed proxy initialized
+atomically with your signing wallet as owner and your relayers, and verifies the resulting config.
+The testnet implementation hash is pinned: a change needs review before the script accepts it.
+Rebuild the small proxy artifact with `pnpm instance:build-router` (pinned solc 0.8.28).
+
+Set the printed `SPONSOR_ROUTER_ADDRESS` in the web deployment (or the admin panel's router override
+when available), then `RELAYER_PRIVATE_KEYS`, `SPONSOR_GAS_BUDGET_PER_HOUR`, `DATABASE_URL` and
+`RELAY_PAUSED=false`. Run `pnpm run doctor` before opening sponsorship. It uses the same checks as
+`/api/health`, including each relayer's balance and allowlisting on your configured router.
+Use `pnpm run doctor`: `pnpm doctor` is pnpm's own diagnostic command and takes precedence over
+package scripts. The instance commands load `apps/web/.env.local` when present; exported environment
+variables take precedence.
+
+New signups add your router. Existing users choose Settings → **Let <instance name> pay**, sending
+`addAccountManager` from their wallet once; they can revoke it later. A second instance can read their
+posts immediately, but can sponsor that Account only after its owner adds the second router.
+Per-instance Lens App registration and signed source stamps are possible, but this change does not
+enable them; the design document records the required client and indexer work.
+
+### Full mode: own indexer on Railway
+
+Use full mode if you want control over indexing cost, availability and traffic logs. Keep the same
+Vercel app and its own Postgres, then:
+
+1. Create a Railway Postgres service for Ponder and a service from this repository. Use the repository
+   root as the build context and `apps/indexer/railway.json` for its config. Its Dockerfile installs the
+   workspace; the start command assigns each deployment a schema, and Railway waits on `/ready`.
+2. Set `PONDER_CHAIN_ID=10143`, `PONDER_RPC_URL`, `PONDER_GET_LOGS_RANGE` for the provider, and the
+   indexer's `DATABASE_URL`. See `apps/indexer/.env.example`. Keep one writer per Ponder schema.
+3. Generate a public domain, wait for `/ready` = 200, then use that domain as the web's `INDEXER_URL`
+   and rebuild the Vercel project. Full mode may share the physical Postgres server with the web app,
+   whose tables live separately in `lens_web`.
+
+### Hosting a shared indexer
+
+REST supports GET/HEAD CORS for any origin without credentials, two-second public cache headers on
+successful responses, uncached errors and a per-IP limit (600 requests/minute by default,
+`INDEXER_RATE_LIMIT_PER_MINUTE`). The limit is bounded in memory and applies per process. IPv6 addresses
+share a /64. Cache the full URL, including viewer/query parameters. After a write is indexed, the browser
+versions its read URLs with that block to avoid reusing an earlier cached timeline. `/status` is used after writes;
+do not cache it. Ponder provides `/health` (process alive), `/ready` (initial indexing complete) and
+`/status` (chain and indexed block); readiness alone does not measure current lag. Doctor compares
+that block with the RPC head.
+
+Put a trusted edge/reverse proxy in front of a public indexer: block `/metrics`, enforce an overall
+rate limit and overwrite the client IP header. Set `INDEXER_TRUSTED_IP_HEADER` only to that overwritten
+header. Unset, the socket address is used; clients of a web proxy may share its bucket. Never trust
+an arbitrary client's `X-Forwarded-For`. Leave `ENABLE_GRAPHQL` unset for shared hosting; it is an
+explicit full-mode option with queries outside the bounded REST API. Ponder's built-in status routes
+and OPTIONS preflights run before the REST middleware, so the edge must also protect those routes.
+Ponder advertises broader preflight methods; REST still refuses writes with 405.
+
+### Test two instances locally
+
+With the local chain and one indexer running, create **two disposable databases**, then:
+
+```sh
+INSTANCE_ONE_DATABASE_URL=postgres://localhost/instance_one \
+INSTANCE_TWO_DATABASE_URL=postgres://localhost/instance_two \
+pnpm test:instances
+```
+
+The harness deploys two routers using anvil keys, migrates both databases, starts web servers on
+ports 3100/3101, and stops them after the test. It checks signup and sponsored posting on instance 1,
+visibility on instance 2, refusal before consent, sponsorship after adding router 2, revocation and
+local likes. Logs go to `.context/instance-1.log` and `instance-2.log`. Run the other chain-writing
+suites sequentially: they share anvil relayer keys.
+
+Without access to the private protocol repository, use deployed bytecode on an anvil fork:
+
+```sh
+anvil --network monad --fork-url https://testnet-rpc.monad.xyz \
+  --fork-block-number 72110000 --chain-id 10143 --auto-impersonate
+# Bring the fork clock to the wall clock for time-window queries:
+cast rpc anvil_setNextBlockTimestamp "$(date +%s)" --rpc-url http://127.0.0.1:8545
+cast rpc evm_mine --rpc-url http://127.0.0.1:8545
+# In another terminal, start Ponder against that loopback fork:
+PONDER_CHAIN_ID=10143 PONDER_RPC_URL=http://127.0.0.1:8545 \
+PONDER_TEST_START_BLOCK=72110000 pnpm indexer
+# Add E2E_CHAIN_ID=10143 RPC_URL=http://127.0.0.1:8545 to pnpm test:instances.
+```
+
+`PONDER_TEST_START_BLOCK` is restricted to a loopback test RPC. Existing protocol/indexer e2e suites
+also accept `E2E_CHAIN_ID=10143` and the loopback `RPC_URL`; their default stays the local deployment.
+Allowlist the test relayer(s) on the fork's shared router, impersonating its owner locally, before
+running those legacy suites. Never send those setup transactions to the public testnet.
+
 ## Deploying to testnet or mainnet
 
 For the deployed Monad testnet contracts, use the [testnet handoff](docs/monad-testnet.md): the addresses are already
 included, the contracts are activated, and relayers can be configured later. Run `pnpm check:testnet` for a read-only
 deployment check.
 
-Parallax runs as a Next.js app on Vercel (the pages and the relayer's API), and the indexer and Postgres on Railway.
+Light mode uses Vercel, Postgres and an existing public indexer. The steps below cover full mode with an indexer
+and Postgres on Railway; both modes use the same Vercel settings.
 
 1. **Address book.** Deploy the protocol (`lens-monad-protocol` README), then `LENS_CONTRACTS_DIR=… pnpm sync:contracts`:
    it copies `deployments/<chainId>.json` into `packages/protocol/deployments` and regenerates
@@ -447,9 +607,12 @@ calls `setRelayer(relayer, false)` (its Accounts get a 503 until the key is remo
 
 ## Relayers and sponsorship
 
+For a community instance, start with [Independent sponsorship](#independent-sponsorship). The shared launch
+router remains supported; the instructions mentioning the Safe refer to that original router.
+
 Three things have to agree for a sponsored action to go through:
 
-- **The SponsorRouter** (onchain, owned by the Safe) lists the relayer EOAs that may call it (`setRelayer`) and the
+- **The SponsorRouter** (onchain, owned by the instance operator, or the shared launch owner) lists the relayer EOAs that may call it (`setRelayer`) and the
   functions it may call for an Account (`setFunction`). `DeployLaunch` sets both: the relayers from `RELAYERS`, and the
   functions from `script/SponsoredFunctions.sol` (posting, editing and deleting, following, usernames, blocking).
 - **The Account** has the router as an account manager, allowed to execute transactions and set metadata, never to

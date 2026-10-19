@@ -32,15 +32,14 @@ The implementation slot is `0xeb612aA4EE2634A8695E57D5cd0427054C9D3bF5`; its run
 `0x776bf070365ad51a4e9321c1de566d48dfcdeba8aac098c7e6ea5fb8bf4eb807`.
 `getFunctions()` returns ten entries:
 
-| Target | Selectors |
-| --- | --- |
-| LensGlobalFeed | `0x322a74d2`, `0x39d2e298`, `0x8e789fc5` |
-| LensGlobalGraph | `0xcde4e98b`, `0xe05d4b07` |
+| Target              | Selectors                                |
+| ------------------- | ---------------------------------------- |
+| LensGlobalFeed      | `0x322a74d2`, `0x39d2e298`, `0x8e789fc5` |
+| LensGlobalGraph     | `0xcde4e98b`, `0xe05d4b07`               |
 | LensGlobalNamespace | `0x1a0e5180`, `0x4df53b27`, `0x666866d3` |
-| AccountBlockingRule | `0xe5bb6575`, `0x778eb30b` |
+| AccountBlockingRule | `0xe5bb6575`, `0x778eb30b`               |
 
-Monad's [testnet documentation](https://docs.monad.xyz/developer-essentials/testnets) identifies chain
-10143. Its [differences documentation](https://docs.monad.xyz/developer-essentials/differences)
+Monad's [testnet documentation](https://docs.monad.xyz/developer-essentials/testnets) identifies chain 10143. Its [differences documentation](https://docs.monad.xyz/developer-essentials/differences)
 recommends Foundry 1.8.0+ with the Monad execution network for local validation. Deployment gas limits
 must follow [Monad gas pricing](https://docs.monad.xyz/developer-essentials/gas-pricing): charges use
 the limit. No assumption about Ethereum gas costs is needed for this design.
@@ -127,11 +126,14 @@ Public hosting needs GET/HEAD CORS without credentials, bounded per-IP request l
 cache headers on successful reads, no caching of errors, and readiness/liveness endpoints. Ponder
 0.18.1 already serves `/ready`, `/health`, `/status` and permissive CORS before the user app; their
 semantics should be preserved. An app middleware can protect REST queries, but cannot intercept those
-built-in endpoints. The edge should block `/metrics`, enforce the overall rate limit, strip client
+built-in endpoints or its OPTIONS preflight responses. Ponder advertises broader preflight methods,
+but REST writes are still refused. The edge should block `/metrics`, enforce the overall rate limit, strip client
 forwarding headers and supply the trusted IP header. In-process rate limits bound one indexer process,
 not a fleet, and don't replace the edge's volumetric protection. Web proxies must preserve trusted
 end-user IPs or their users share the web host's bucket. Caching always keys on the full query string,
-including the viewer; never cache per-session web responses publicly.
+including the viewer. After observing a confirmed write in `/status`, the browser adds that block
+as `_after` to subsequent read URLs so an old cached timeline cannot hide its own write. Never cache
+per-session web responses publicly.
 
 Tradeoff: light mode delegates read availability, RPC/indexing costs and traffic visibility to the
 indexer host. Short caches reduce database work at the edge while adding a little read delay; the

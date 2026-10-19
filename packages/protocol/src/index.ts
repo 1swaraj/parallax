@@ -7,3 +7,4 @@ export * from './metadata';
 export * from './usernames';
 export * from './api';
 export * from './errors';
+export { deployInstanceRouter } from './router';

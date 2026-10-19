@@ -29,6 +29,8 @@ export const InstanceConfig = z
     sponsorRouter: z
       .string()
       .regex(/^0x[0-9a-fA-F]{40}$/)
+      // Fail closed: a zero router would make every sponsored action and sign-up target nothing.
+      .refine((value) => !/^0x0{40}$/.test(value), 'SponsorRouter must be a nonzero address')
       .default(getDeployment(CHAIN_ID).contracts.SponsorRouter),
     relayPaused: z.boolean().default(false),
     sponsorGasBudgetPerHour: gas.nullable().default(null),

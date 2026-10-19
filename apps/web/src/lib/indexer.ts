@@ -21,6 +21,10 @@ import type { Address } from 'viem';
 /** All indexer queries start with this key, so a write can refresh them all once the indexer caught up. */
 export const INDEXER_KEY = 'indexer';
 
+// A confirmed write changes the cache key for this browser's reads. Otherwise a fresh /status could be
+// followed by a cached timeline from before that write. Public readers still share the unversioned URLs.
+let minimumReadBlock: bigint | undefined;
+
 export class IndexerError extends Error {
   constructor(
     readonly status: number,
@@ -31,7 +35,15 @@ export class IndexerError extends Error {
 }
 
 export async function indexerGet<T>(path: string): Promise<T> {
-  const response = await fetch(`/indexer${path}`);
+  const status = path.split('?')[0] === '/status';
+  const version =
+    !status && minimumReadBlock !== undefined
+      ? `${path.includes('?') ? '&' : '?'}_after=${minimumReadBlock}`
+      : '';
+  const response = await fetch(
+    `/indexer${path}${version}`,
+    status ? { cache: 'no-store' } : undefined
+  );
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null;
     throw new IndexerError(response.status, body?.error ?? `Indexer error ${response.status}`);
@@ -247,6 +259,10 @@ export async function waitForIndexer(
       ? Math.min(...Object.values(status).map((chain) => chain.block.number))
       : -1;
     if (BigInt(indexed) >= blockNumber) {
+      minimumReadBlock =
+        minimumReadBlock === undefined || blockNumber > minimumReadBlock
+          ? blockNumber
+          : minimumReadBlock;
       break;
     }
     await new Promise((resolve) => setTimeout(resolve, 300));

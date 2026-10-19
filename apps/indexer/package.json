@@ -8,7 +8,8 @@
     "start": "ponder start",
     "codegen": "ponder codegen",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "pnpm --filter @lens-monad/protocol exec vitest run --root ../../apps/indexer --testTimeout 60000 test/api.e2e.test.ts"
+    "test:e2e": "pnpm --filter @lens-monad/protocol exec vitest run --root ../../apps/indexer --testTimeout 60000 test/api.e2e.test.ts",
+    "test": "pnpm --filter @lens-monad/protocol exec vitest run --root ../../apps/indexer test/public-reads.test.ts"
   },
   "dependencies": {
     "@lens-monad/protocol": "workspace:*",
