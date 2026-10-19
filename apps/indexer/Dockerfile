@@ -4,9 +4,9 @@
 #   docker run -p 42069:42069 -e PONDER_CHAIN_ID=10143 -e PONDER_RPC_URL=… -e DATABASE_URL=… \
 #     -e DATABASE_SCHEMA=lens lens-monad-indexer
 #
-# Railway: leave the service's root directory at the repository root, set its config file path to
-# /apps/indexer/railway.json (build, start command with a schema per deployment, /ready healthcheck), add a Postgres
-# database, and set the variables of .env.example, DATABASE_URL as a reference to the database's.
+# Railway: leave the service's root directory at the repository root, give it the settings in railway.json (this
+# Dockerfile, a start command with a schema per deployment, the /ready healthcheck), add a Postgres database, and set
+# the variables of .env.example, DATABASE_URL as a reference to the database's. See Deploying in the README.
 
 FROM node:24-slim
 

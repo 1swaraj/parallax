@@ -15,3 +15,4 @@ contracts/cache/
 .claude/
 # Licensed to Monad, fetched at build time (apps/web/scripts/fetch-display-font.mjs)
 apps/web/public/fonts/britti-sans-variable.woff2
+.vercel
