@@ -2,6 +2,7 @@
 import chain10143 from '../deployments/10143.json';
 import chain31337 from '../deployments/31337.json';
 import mirror10143 from '../deployments/mirror/10143.json';
+import mirror31337 from '../deployments/mirror/31337.json';
 
 export const ADDRESS_BOOKS = [chain10143, chain31337];
-export const MIRROR_ADDRESS_BOOKS = [mirror10143];
+export const MIRROR_ADDRESS_BOOKS = [mirror10143, mirror31337];

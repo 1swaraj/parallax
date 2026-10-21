@@ -11,5 +11,11 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["doctor.ts", "db-migrate.ts", "instance-deploy-router.ts", "test-instances.ts"]
+  "include": [
+    "doctor.ts",
+    "db-migrate.ts",
+    "instance-deploy-router.ts",
+    "test-instances.ts",
+    "mirror-seed.ts"
+  ]
 }
