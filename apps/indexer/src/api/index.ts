@@ -32,6 +32,7 @@ import {
   count,
   desc,
   eq,
+  exists,
   graphql,
   gte,
   ilike,
@@ -111,6 +112,13 @@ const reader =
 
 /** How long a page waits for offchain metadata. What isn't in by then shows as a link, and is cached for later. */
 const METADATA_DEADLINE_MS = Number(process.env.METADATA_DEADLINE_MS ?? 2_500);
+
+/**
+ * Mirror mode: the Everyone timeline and the trends leave out authors with fewer followers than this
+ * (MIRROR_TIMELINE_MIN_FOLLOWERS, 0 for none). Most of Lens Chain's recent posts come from spam farms of accounts no one
+ * follows, many of them explicit.
+ */
+const TIMELINE_MIN_FOLLOWERS = MIRROR ? Number(process.env.MIRROR_TIMELINE_MIN_FOLLOWERS ?? 1) : 0;
 
 const app = new Hono();
 
@@ -527,6 +535,19 @@ async function relationships(viewer: Address, targets: Address[]) {
   });
 }
 
+/** Mirror mode: posts by authors with followers enough for the public timeline and trends (TIMELINE_MIN_FOLLOWERS). */
+function followedAuthor(): Condition {
+  return TIMELINE_MIN_FOLLOWERS > 0
+    ? inArray(
+        post.author,
+        db
+          .select({ address: account.address })
+          .from(account)
+          .where(gte(account.followers, TIMELINE_MIN_FOLLOWERS))
+      )
+    : undefined;
+}
+
 // Timelines: posts, quotes and reposts, without replies, newest first.
 
 app.get('/timeline', async (c) => {
@@ -534,7 +555,12 @@ app.get('/timeline', async (c) => {
   const cursor = positionParam(c.req.query('cursor'));
   return c.json(
     await postsPage(
-      [isNull(post.repliedPostId), notBlockedBy(viewer), relativeTo(post, 'before', cursor)],
+      [
+        isNull(post.repliedPostId),
+        notBlockedBy(viewer),
+        followedAuthor(),
+        relativeTo(post, 'before', cursor),
+      ],
       limitOf(c.req.query('limit')),
       viewer
     )
@@ -713,7 +739,15 @@ app.get('/trends', async (c) => {
             .select({ id: post.id })
             .from(post)
             .where(and(eq(post.id, hashtag.postId), eq(post.deleted, true)))
-        )
+        ),
+        TIMELINE_MIN_FOLLOWERS > 0
+          ? exists(
+              db
+                .select({ id: post.id })
+                .from(post)
+                .where(and(eq(post.id, hashtag.postId), followedAuthor()))
+            )
+          : undefined
       )
     )
     .orderBy(desc(hashtag.createdAt))
