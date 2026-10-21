@@ -32,6 +32,7 @@ describe('mirror mode, end to end', () => {
     const status = await api<MirrorStatusView>('/mirror');
     expect(status).toMatchObject({
       accounts: 9,
+      accountReads: 0,
       posts: 22,
       lensChainPosts: '22',
       follows: 20,
@@ -93,6 +94,18 @@ describe('mirror mode, end to end', () => {
     // The name moved to ana_studio, and Marco's profile is offchain and can't be read locally.
     await api('/accounts/ana_posters', 404);
     expect((await profile('marco_p')).account.name).toBeNull();
+  });
+
+  it('takes Accounts’ state from their imports’ transactions, without an eth_call', async () => {
+    // Imported again, two in one batch, one with a manager: the new profiles, as each Account's stateHash proves.
+    expect((await profile('kai_lens')).account.bio).toBe(
+      'Protocol engineer. Graphs, feeds, namespaces, and Monad.'
+    );
+    expect((await profile('nina_reads')).account.bio).toBe('Book club on Lens. Reading again.');
+    // Ponder counts the RPC requests of the indexing functions by method.
+    const metrics = await (await fetch(`${INDEXER_URL}/metrics`)).text();
+    expect(metrics).toContain('ponder_indexing_rpc_requests_total');
+    expect(metrics).not.toMatch(/^ponder_indexing_rpc_\w+_total\{[^}]*method="eth_call"/m);
   });
 
   it('notifies only what happened after the mirror started', async () => {

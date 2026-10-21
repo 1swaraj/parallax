@@ -1,5 +1,6 @@
 import {
   migrationAccountAbi,
+  migrationAccountDeployerAbi,
   parseDataURI,
   readPostMetadata,
   readProfile,
@@ -19,7 +20,18 @@ import {
   username,
   type PendingNotification,
 } from 'ponder:schema';
-import { encodePacked, isAddressEqual, keccak256, zeroAddress, type Address, type Hex } from 'viem';
+import {
+  decodeAbiParameters,
+  decodeFunctionData,
+  encodeAbiParameters,
+  encodePacked,
+  getAbiItem,
+  isAddressEqual,
+  keccak256,
+  zeroAddress,
+  type Address,
+  type Hex,
+} from 'viem';
 import {
   addRecipient,
   notify,
@@ -46,6 +58,7 @@ import { hashtagsOf } from './tokens';
 
 type Block = { number: bigint; timestamp: bigint };
 type ImportEvent<args> = { args: args; block: Block; log: { address: Address } };
+type Transaction = { hash: Hex; to: Address | null; input: Hex };
 type PostRow = typeof post.$inferSelect;
 type PendingPostRow = typeof mirrorPendingPost.$inferSelect;
 type CountedAccountField = 'followers' | 'following' | 'posts';
@@ -111,6 +124,7 @@ async function status(context: Context, at: Block) {
       ...STATUS,
       notifySince: at.timestamp,
       accounts: 0,
+      accountReads: 0,
       posts: 0,
       lensChainPosts: null,
       follows: 0,
@@ -239,20 +253,85 @@ export async function accountMapped(
   await recordImport(context, event.block);
 }
 
+/** The state an Account import sets, MigrationAccount's AccountInput, as readAccount returns it. */
+const ACCOUNT_INPUT = getAbiItem({ abi: migrationAccountAbi, name: 'readAccount' }).outputs;
+
+/** MigrationAccountDeployer.applyBatch's payload: abi.encode(AccountImport[]), an AccountImport being (source, account). */
+const ACCOUNT_IMPORTS = [
+  {
+    type: 'tuple[]',
+    components: [
+      { name: 'source', type: 'address' },
+      { ...ACCOUNT_INPUT[0], name: 'account' },
+    ],
+  },
+] as const;
+
+type AccountInput = { owner: Address; metadataURI: string };
+
+/** The states in the latest transaction decoded, by their hash: a transaction imports up to 10 Accounts. */
+let decoded: { transaction: Hex; states: Map<Hex, AccountInput> } | undefined;
+
 /**
- * An Account's import, its first or an update: its owner and profile are read from the Account, as the import left it
- * at the event's block (Ponder's default block, which lets it prefetch the reads).
+ * The state an Account import set, from the transaction that made it, or null if the transaction doesn't say. The
+ * accounts operator calls MigrationAccountDeployer.applyBatch(sequence, revision, abi.encode(AccountImport[])), which
+ * imports each item's AccountInput into its Account; the Account emits AccountImported with the hash of what it took,
+ * keccak256(abi.encode(input)). The item whose input hashes to the event's stateHash is the state, proven by the hash.
+ * The deployer and the Account re-encode what they decode, so the input is hashed as the ABI encodes it, which for a
+ * struct with dynamic fields starts with its offset (0x20).
+ */
+export function importedState(
+  transaction: Transaction,
+  deployer: Address,
+  stateHash: Hex
+): AccountInput | null {
+  if (transaction.to === null || !isAddressEqual(transaction.to, deployer)) {
+    return null;
+  }
+  if (decoded?.transaction !== transaction.hash) {
+    const states = new Map<Hex, AccountInput>();
+    try {
+      const call = decodeFunctionData({
+        abi: migrationAccountDeployerAbi,
+        data: transaction.input,
+      });
+      if (call.functionName === 'applyBatch') {
+        const [items] = decodeAbiParameters(ACCOUNT_IMPORTS, call.args[2]);
+        for (const { account: input } of items) {
+          states.set(keccak256(encodeAbiParameters(ACCOUNT_INPUT, [input])), input);
+        }
+      }
+    } catch {
+      // Not a batch this indexer can read: the Account is.
+    }
+    decoded = { transaction: transaction.hash, states };
+  }
+  return decoded.states.get(stateHash.toLowerCase() as Hex) ?? null;
+}
+
+/**
+ * An Account's import, its first or an update: its owner and profile are the state it set, from the import's
+ * transaction (importedState). Only if that doesn't prove it are they read from the Account, as the import left it at
+ * the event's block, which needs an RPC that still has that block's state: the mirror's status counts those reads.
  */
 export async function accountImported(
-  event: ImportEvent<{ revision: bigint; stateHash: Hex }>,
+  event: ImportEvent<{ revision: bigint; stateHash: Hex }> & { transaction: Transaction },
   context: Context
 ) {
   const address = lower(event.log.address);
-  const state = await context.client.readContract({
-    abi: migrationAccountAbi,
-    address,
-    functionName: 'readAccount',
-  });
+  const imported = importedState(
+    event.transaction,
+    context.contracts.MigrationAccountDeployer.address,
+    event.args.stateHash
+  );
+  const state =
+    imported ??
+    (await context.client.readContract({
+      abi: migrationAccountAbi,
+      address,
+      functionName: 'readAccount',
+    }));
+  const reads = imported ? 0 : 1;
   const profile = readProfile(state.metadataURI);
   const fields = {
     owner: lower(state.owner),
@@ -263,7 +342,9 @@ export async function accountImported(
   };
   if (await context.db.find(account, { address })) {
     await context.db.update(account, { address }).set(fields);
-    await recordImport(context, event.block);
+    await recordImport(context, event.block, (current) => ({
+      accountReads: current.accountReads + reads,
+    }));
     return;
   }
   const pending = await context.db.find(mirrorPendingAccount, { address });
@@ -282,7 +363,10 @@ export async function accountImported(
   if (pending) {
     await context.db.delete(mirrorPendingAccount, { address });
   }
-  await recordImport(context, event.block, (current) => ({ accounts: current.accounts + 1 }));
+  await recordImport(context, event.block, (current) => ({
+    accounts: current.accounts + 1,
+    accountReads: current.accountReads + reads,
+  }));
 }
 
 // Usernames

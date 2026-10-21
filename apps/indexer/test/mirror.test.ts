@@ -1,9 +1,24 @@
 // The mirror's handlers (src/mirror-handlers.ts) against an in-memory store: every importer event, records arriving
 // out of order, and later imports updating earlier ones.
 
-import { accountMetadata, textOnlyPost, toDataURI } from '@lens-monad/protocol';
+import {
+  accountMetadata,
+  migrationAccountDeployerAbi,
+  textOnlyPost,
+  toDataURI,
+} from '@lens-monad/protocol';
 import type { Context } from 'ponder:registry';
-import { getAddress, zeroAddress, type Address } from 'viem';
+import {
+  encodeAbiParameters,
+  encodeFunctionData,
+  getAddress,
+  keccak256,
+  parseAbiParameters,
+  toHex,
+  zeroAddress,
+  type Address,
+  type Hex,
+} from 'viem';
 import { describe, expect, it } from 'vitest';
 import {
   account,
@@ -24,6 +39,7 @@ import {
   feedCountersImported,
   followImported,
   followPosition,
+  importedState,
   postImported,
   postPosition,
   usernameImported,
@@ -37,6 +53,53 @@ const CAROL: Address = '0x00000000000000000000000000000000000ca201';
 const LENS_ALICE: Address = '0x0000000000000000000000000000000000a11ce1';
 const OWNER: Address = '0x00000000000000000000000000000000000000e0';
 const NEW_OWNER: Address = '0x00000000000000000000000000000000000000e1';
+const MANAGER: Address = '0x00000000000000000000000000000000000000a0';
+// The mirror's MigrationAccountDeployer, which the accounts operator calls, and a contract that isn't it.
+const DEPLOYER: Address = '0x00000000000000000000000000000000000de910';
+const SAFE: Address = '0x000000000000000000000000000000000000005a';
+
+// MigrationAccount's AccountInput as Solidity declares it, and MigrationAccountDeployer.applyBatch's payload.
+const ACCOUNT_INPUT = parseAbiParameters(
+  '(address owner, address proxyAdminOwner, string metadataURI, (address account, bool execute, bool transferTokens, bool setMetadata, uint32 allowanceKey)[] managers)'
+);
+const ACCOUNT_IMPORTS = parseAbiParameters(
+  '(address source, (address owner, address proxyAdminOwner, string metadataURI, (address account, bool execute, bool transferTokens, bool setMetadata, uint32 allowanceKey)[] managers) account)[]'
+);
+
+type Manager = {
+  account: Address;
+  execute: boolean;
+  transferTokens: boolean;
+  setMetadata: boolean;
+  allowanceKey: number;
+};
+type AccountState = { owner: Address; metadataURI: string; managers?: Manager[] };
+
+const accountInput = (state: AccountState) => ({
+  proxyAdminOwner: state.owner,
+  managers: [] as Manager[],
+  ...state,
+});
+
+/** What a MigrationAccount emits for the state it imports: keccak256(abi.encode(input)). */
+const stateHash = (state: AccountState) =>
+  keccak256(encodeAbiParameters(ACCOUNT_INPUT, [accountInput(state)]));
+
+let transactions = 0;
+
+/** A transaction calling `to` with MigrationAccountDeployer.applyBatch's calldata. */
+function applyBatch(to: Address, payload: Hex) {
+  transactions++;
+  return {
+    hash: keccak256(toHex(`transaction ${transactions}`)),
+    to,
+    input: encodeFunctionData({
+      abi: migrationAccountDeployerAbi,
+      functionName: 'applyBatch',
+      args: [BigInt(transactions), 1n, payload],
+    }),
+  };
+}
 
 /** The mirror starts here (Monad time). History is from before, Lens Chain's new activity from after. */
 const START = 1_800_000_000n;
@@ -74,10 +137,11 @@ function mirror() {
     ])
   );
   // The Accounts' state, as readAccount() returns it at the import's block.
-  const states = new Map<string, { owner: Address; metadataURI: string }>();
+  const states = new Map<string, AccountState>();
   const reads: string[] = [];
   const context = {
     db,
+    contracts: { MigrationAccountDeployer: { address: DEPLOYER } },
     client: {
       readContract: async ({
         address,
@@ -91,7 +155,7 @@ function mirror() {
         if (!state) {
           throw new Error(`No Account at ${address}`);
         }
-        return { proxyAdminOwner: state.owner, managers: [], ...state };
+        return accountInput(state);
       },
     },
   } as unknown as Context;
@@ -111,16 +175,36 @@ function mirror() {
     reads,
     find: (table: object, key: Record<string, unknown>) => db.find(table, key),
     status: () => db.find(mirrorStatus, { id: 1 }),
-    async importAccount(
-      target: Address,
-      state: { owner: Address; metadataURI: string },
-      source?: Address
+    /**
+     * The accounts operator's applyBatch of these Accounts, a transaction to `to`: as the deployer does, each new one
+     * is mapped (`source`), then emits AccountImported with the hash of the state it took.
+     */
+    async importAccounts(
+      imports: { target: Address; state: AccountState; source?: Address }[],
+      to: Address = DEPLOYER
     ) {
-      states.set(target.toLowerCase(), state);
-      if (source) {
-        await accountMapped(event({ source, target }), context);
+      const transaction = applyBatch(
+        to,
+        encodeAbiParameters(ACCOUNT_IMPORTS, [
+          imports.map(({ target, state, source }) => ({
+            source: source ?? target,
+            account: accountInput(state),
+          })),
+        ])
+      );
+      for (const { target, state, source } of imports) {
+        states.set(target.toLowerCase(), state);
+        if (source) {
+          await accountMapped(event({ source, target }), context);
+        }
+        await accountImported(
+          { ...event({ revision: 1n, stateHash: stateHash(state) }, target), transaction },
+          context
+        );
       }
-      await accountImported(event({ revision: 1n, stateHash: '0x' as const }, target), context);
+    },
+    importAccount(target: Address, state: AccountState, source?: Address) {
+      return this.importAccounts([{ target, state, source }]);
     },
     assign: (name: string, assignedAccount: Address) =>
       usernameImported(event({ username: { username: name, assignedAccount } }), context),
@@ -154,7 +238,7 @@ function mirror() {
 }
 
 describe('mirror accounts', () => {
-  it('imports an Account with its owner and inline profile, read at the import, and its Lens Chain address', async () => {
+  it('imports an Account with its owner and inline profile, from its import’s transaction, and its Lens Chain address', async () => {
     const m = mirror();
     await m.importAccount(
       getAddress(ALICE),
@@ -169,9 +253,51 @@ describe('mirror accounts', () => {
       followers: 0,
       lensChainAddress: LENS_ALICE,
     });
-    expect(m.reads).toEqual([`readAccount@${ALICE}`]);
+    expect(m.reads).toEqual([]);
     expect(m.rows(mirrorPendingAccount)).toEqual([]);
-    expect((await m.status())?.accounts).toBe(1);
+    expect(await m.status()).toMatchObject({ accounts: 1, accountReads: 0 });
+  });
+
+  it('takes each Account of a batch the state its hash proves', async () => {
+    const m = mirror();
+    const alice = { owner: OWNER, metadataURI: toDataURI(accountMetadata({ name: 'Alice' })) };
+    const bob = {
+      owner: NEW_OWNER,
+      metadataURI: 'lens://bob',
+      managers: [
+        {
+          account: MANAGER,
+          execute: true,
+          transferTokens: false,
+          setMetadata: true,
+          allowanceKey: 1,
+        },
+      ],
+    };
+    // As Solidity's abi.encode(input) hashes it (cast abi-encode), from the struct's offset (0x20) on.
+    expect(stateHash(bob)).toBe(
+      '0xc15b1900a01ecf4de9d82660892c3fa792e4a34b955e611610f65f9dcd4f981b'
+    );
+    await m.importAccounts([
+      { target: ALICE, state: alice, source: LENS_ALICE },
+      { target: BOB, state: bob },
+      // The same state as Alice's: either item proves it.
+      { target: CAROL, state: alice },
+    ]);
+    expect(await m.find(account, { address: ALICE })).toMatchObject({
+      owner: OWNER,
+      name: 'Alice',
+    });
+    expect(await m.find(account, { address: BOB })).toMatchObject({
+      owner: NEW_OWNER,
+      metadataUri: 'lens://bob',
+    });
+    expect(await m.find(account, { address: CAROL })).toMatchObject({
+      owner: OWNER,
+      name: 'Alice',
+    });
+    expect(m.reads).toEqual([]);
+    expect(await m.status()).toMatchObject({ accounts: 3, accountReads: 0 });
   });
 
   it('takes a new owner and profile from a later import, without counting the Account twice', async () => {
@@ -184,7 +310,69 @@ describe('mirror accounts', () => {
       // Offchain metadata is the API's to read.
       name: null,
     });
+    expect(m.reads).toEqual([]);
     expect((await m.status())?.accounts).toBe(1);
+  });
+
+  it('reads an Account whose transaction doesn’t prove its state, and counts the read', async () => {
+    const m = mirror();
+    // The operator's batch, sent through another contract.
+    await m.importAccounts(
+      [{ target: ALICE, state: { owner: OWNER, metadataURI: 'lens://alice' } }],
+      SAFE
+    );
+    expect(await m.find(account, { address: ALICE })).toMatchObject({
+      owner: OWNER,
+      metadataUri: 'lens://alice',
+    });
+    expect(m.reads).toEqual([`readAccount@${ALICE}`]);
+    // A later import that proves its state reads nothing.
+    await m.importAccount(ALICE, { owner: NEW_OWNER, metadataURI: 'lens://alice' });
+    expect(m.reads).toHaveLength(1);
+    expect(await m.status()).toMatchObject({ accounts: 1, accountReads: 1 });
+  });
+
+  it('takes no state its transaction doesn’t prove', () => {
+    const alice = { owner: OWNER, metadataURI: 'lens://alice' };
+    const batch = (to: Address) =>
+      applyBatch(
+        to,
+        encodeAbiParameters(ACCOUNT_IMPORTS, [
+          [{ source: LENS_ALICE, account: accountInput(alice) }],
+        ])
+      );
+    expect(importedState(batch(DEPLOYER), DEPLOYER, stateHash(alice))).toMatchObject({
+      owner: getAddress(OWNER),
+      metadataURI: 'lens://alice',
+    });
+    expect(importedState(batch(SAFE), DEPLOYER, stateHash(alice))).toBeNull();
+    expect(
+      importedState(batch(DEPLOYER), DEPLOYER, stateHash({ ...alice, owner: NEW_OWNER }))
+    ).toBeNull();
+    // A metadata URI that isn't UTF-8: the Account hashes its bytes, which a decoded string doesn't keep.
+    const bytes = { ...accountInput(alice), metadataURI: '0x6c656e733a2f2fff' as Hex };
+    const raw = applyBatch(
+      DEPLOYER,
+      encodeAbiParameters(
+        parseAbiParameters(
+          '(address source, (address owner, address proxyAdminOwner, bytes metadataURI, (address account, bool execute, bool transferTokens, bool setMetadata, uint32 allowanceKey)[] managers) account)[]'
+        ),
+        [[{ source: LENS_ALICE, account: bytes }]]
+      )
+    );
+    const rawHash = keccak256(
+      encodeAbiParameters(
+        parseAbiParameters(
+          '(address owner, address proxyAdminOwner, bytes metadataURI, (address account, bool execute, bool transferTokens, bool setMetadata, uint32 allowanceKey)[] managers)'
+        ),
+        [bytes]
+      )
+    );
+    expect(importedState(raw, DEPLOYER, rawHash)).toBeNull();
+    // Nor calldata that isn't applyBatch's.
+    expect(
+      importedState({ ...batch(DEPLOYER), input: '0xdeadbeef' }, DEPLOYER, stateHash(alice))
+    ).toBeNull();
   });
 });
 

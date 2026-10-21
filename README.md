@@ -635,7 +635,7 @@ mirror's address book (`packages/protocol/deployments/mirror/<chainId>.json`, `g
 | Importer                                | Event                           | Writes                                                                        |
 | --------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------- |
 | `MigrationAccountDeployer`              | `AccountMapped(source, target)` | The Account's Lens Chain address (`lensChainAddress`)                         |
-| Account proxies (`MigrationAccount`)    | `AccountImported`               | The Account: owner and profile read from `readAccount()` at the event's block |
+| Account proxies (`MigrationAccount`)    | `AccountImported`               | The Account: owner and profile from the import's calldata, proven by its hash |
 | Global Namespace (`MigrationNamespace`) | `UsernameImported`              | Usernames, moved, unassigned or burned                                        |
 | Global Feed (`MigrationFeed`)           | `PostImported`                  | Posts, edits and deletions, hashtags, counts                                  |
 | Global Feed (`MigrationFeed`)           | `FeedCountersImported`          | Lens Chain's post count, for the history's sync                               |
@@ -654,13 +654,26 @@ mirror's address book (`packages/protocol/deployments/mirror/<chainId>.json`, `g
   are notified for posts whose text is onchain (`@name` or Lens' `@lens/name`). Notifications are ordered by their
   Lens Chain time too, so one imported after a newer one was seen doesn't count as unread.
 - **Text.** Lens Chain's records are anyone's: NUL characters, which Postgres refuses, are taken out of their text.
-- **Accounts' state is read from the Account** at the import's block, one `eth_call` per Account import. Monad full
-  nodes keep recent state only ([historical data](https://docs.monad.xyz/developer-essentials/historical-data)), so
-  indexing imports older than the RPC's lookback needs an RPC with historical state: on testnet, the QuickNode and
-  Monad Foundation endpoints are archive ([testnets](https://docs.monad.xyz/developer-essentials/testnets)), and the
-  QuickNode one serves 25 `eth_call`s a second: about 10 hours for ~873k Accounts. A paid archive RPC is faster.
+- **Accounts' state comes from the import's transaction**, with no `eth_call`. The accounts operator calls
+  `MigrationAccountDeployer.applyBatch(sequence, revision, payload)`, where `payload` is `abi.encode(AccountImport[])`
+  (up to 10 Accounts, each `(source, AccountInput)`). Each Account emits `AccountImported(revision, stateHash)`, with
+  `stateHash = keccak256(abi.encode(input))` of the `AccountInput` it took. The indexer checks that the transaction calls
+  the mirror's deployer's `applyBatch`, decodes the payload, and takes the owner and profile of the item whose input
+  hashes to the event's `stateHash`, so the hash proves them. Ponder already fetches the blocks of the events with
+  their transactions, so this costs no request. Only when nothing matches (the batch was sent through another
+  contract, say) does the indexer read `readAccount()` at the event's block, and `GET /mirror` counts those reads
+  (`accountReads`).
+- **RPC: no archive needed.** Monad full nodes serve all historic blocks, transactions, receipts and logs, but only
+  recent state ([historical data](https://docs.monad.xyz/developer-essentials/historical-data)), and only the fallback
+  reads state. On 2026-10-21, Monad testnet's public endpoints kept about 15 to 72 days of state (QuickNode about 72,
+  Monad Foundation about 20, Ankr about 15). The [testnets](https://docs.monad.xyz/developer-essentials/testnets) page
+  lists the QuickNode and Monad Foundation endpoints as archive, which those lookbacks contradict. Public endpoints
+  limit requests per IP, which shared hosts such as Railway share between their tenants: use a keyed endpoint there.
+  `eth_getLogs` ranges were limited to about 100 blocks on QuickNode, Monad Foundation, Ankr and dRPC, and 1,000 on
+  thirdweb: set `PONDER_GET_LOGS_RANGE` to the endpoint's.
 - `GET /mirror` reports how far the import is: Accounts, posts of Lens Chain's post count, how far back the history
-  goes, and the latest import.
+  goes, the latest import, and the Account imports read from the chain (`accountReads`, 0 unless the operator calls
+  the deployer through another contract).
 - Accounts created on the mirror's deployment with the AccountFactory, which anyone can call, aren't Lens Chain's: the
   indexer only reads the Accounts `MigrationAccountDeployer` maps. A Lens Chain Account's creation time isn't imported,
   so the app doesn't show when it joined.
@@ -712,12 +725,14 @@ NEXT_PUBLIC_MIRROR=true pnpm web                              # terminal 3: http
 `pnpm mirror:chain` (`scripts/mirror-chain.sh`) deploys Lens in migration mode with the protocol's own scripts,
 promotes and syncs the mirror's address book (`pnpm sync:contracts --mirror`), then imports a made-up slice of Lens
 Chain through the importers, as the migrator does (`scripts/mirror-seed.ts`, `MIRROR_SEED=0` to skip): nine
-Accounts and their usernames, then recent posts, follows and blocks, then older history, newest first, with an edit,
-a deletion, an unfollow, an unblock and a username moving, and last new activity, which notifies. Posts use several
-Lens metadata types and versions, and one offchain URI that can't be read. To sign in, use anvil's 10th account
+Accounts, five to a batch, and their usernames, then recent posts, follows and blocks, then older history, newest
+first, with an edit, a deletion, an unfollow, an unblock, a username moving and two Accounts imported again in one
+batch (a new bio, and a manager), and last new activity, which notifies. Posts use several Lens metadata types and
+versions, and one offchain URI that can't be read. To sign in, use anvil's 10th account
 (`0xa0Ee7A142d267C1f36714E4a8F75612F20a79720`), which owns @ana_lima and @ana_studio. Stop `pnpm chain` first: both
 use port 8545 and chain 31337. Then `pnpm --filter @lens-monad/indexer test:e2e:mirror` and
-`node apps/web/test/ui/mirror.mjs` check the result.
+`node apps/web/test/ui/mirror.mjs` check the result: the e2e test also checks, from Ponder's `/metrics`, that indexing
+made no `eth_call`.
 
 ### Point it at the testnet mirror
 
@@ -729,9 +744,9 @@ the app refuse to start in mirror mode on 10143 until it's replaced.
    importers' ABIs and the migration-mode books only, to `packages/protocol/deployments/mirror`, and regenerates
    `address-books.ts`; commit them. A plain `pnpm sync:contracts` leaves both alone. With only the JSON at hand, put it there and run `pnpm sync:contracts --address-books`.
 2. **Indexer**, a Railway service of its own with its own Postgres, set up as in
-   [Full mode](#full-mode-own-indexer-on-railway), with `PONDER_MIRROR=true`, `PONDER_CHAIN_ID=10143`, an archive
-   `PONDER_RPC_URL` (above) and its `PONDER_GET_LOGS_RANGE`. See `apps/indexer/.env.mirror.example`. Give it a public
-   domain, wait for `/ready`, and check `/mirror`.
+   [Full mode](#full-mode-own-indexer-on-railway), with `PONDER_MIRROR=true`, `PONDER_CHAIN_ID=10143`, a keyed
+   `PONDER_RPC_URL` (no archive needed, above) and its `PONDER_GET_LOGS_RANGE`. See `apps/indexer/.env.mirror.example`.
+   Give it a public domain, wait for `/ready`, and check `/mirror`: `accountReads` should stay 0.
 3. **App**, a Vercel project of its own with its own database, as in
    [Deploying to testnet or mainnet](#deploying-to-testnet-or-mainnet), with `NEXT_PUBLIC_MIRROR=true` and
    `NEXT_PUBLIC_CHAIN_ID=10143` at build time, and `INDEXER_URL` the mirror's indexer. No relayer keys or sponsorship

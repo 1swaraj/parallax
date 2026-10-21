@@ -138,6 +138,12 @@ export type SyncStatus = { block: string };
  */
 export type MirrorStatusView = {
   accounts: number;
+  /**
+   * Account imports the indexer read from the chain (an eth_call at the import's block) because their transaction
+   * didn't prove their state: 0 while the operator calls MigrationAccountDeployer.applyBatch directly. Each one needs
+   * an RPC that still has the import's block's state.
+   */
+  accountReads: number;
   posts: number;
   /** Null until the first post batch. */
   lensChainPosts: string | null;

@@ -227,6 +227,8 @@ export const mirrorStatus = onchainTable('mirror_status', (t) => ({
   /** Records whose original time is before it are history, which never notifies: the first import's block time. */
   notifySince: t.bigint().notNull(),
   accounts: t.integer().notNull(),
+  /** Account imports whose state was read from the Account at their block, as their transaction didn't prove it. */
+  accountReads: t.integer().notNull(),
   posts: t.integer().notNull(),
   /** Lens Chain's post count, as the feed importer's counters carry it. */
   lensChainPosts: t.bigint(),

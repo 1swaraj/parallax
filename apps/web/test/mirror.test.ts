@@ -96,6 +96,7 @@ describe('mirror mode', () => {
     const { HistorySync } = await import('../src/components/mirror');
     const status = {
       accounts: 873_000,
+      accountReads: 0,
       posts: 3_100_000,
       lensChainPosts: '21400000',
       follows: 0,

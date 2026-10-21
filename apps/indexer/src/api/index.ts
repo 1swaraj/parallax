@@ -1012,6 +1012,7 @@ app.get('/mirror', async (c) => {
   const string = (value: bigint | null | undefined) => value?.toString() ?? null;
   return c.json({
     accounts: row?.accounts ?? 0,
+    accountReads: row?.accountReads ?? 0,
     posts: row?.posts ?? 0,
     lensChainPosts: string(row?.lensChainPosts),
     follows: row?.follows ?? 0,

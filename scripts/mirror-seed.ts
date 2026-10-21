@@ -169,6 +169,33 @@ const lensChainAddress = (key: Key) =>
 const ownerOf = (key: Key) =>
   (PEOPLE[key] as Person).owner ?? privateKeyToAddress(keccak256(toHex(`owner:${key}`)));
 
+/** An app with a key that acts for Kai, as Account managers on Lens Chain do. */
+const KAI_APP = getAddress(keccak256(toHex('lens-chain:kai-app')).slice(0, 42));
+
+/** An Account's state, as the migrator imports it: from scratch, so with every manager it has. */
+function accountImport(key: Key, change: Partial<Person> = {}, managers: Address[] = []) {
+  const person = { ...PEOPLE[key], ...change } as Person;
+  return {
+    source: lensChainAddress(key),
+    account: {
+      owner: ownerOf(key),
+      proxyAdminOwner: ownerOf(key),
+      metadataURI: person.offchain
+        ? `lens://${keccak256(toHex(`profile:${key}`)).slice(2)}`
+        : toDataURI(
+            accountMetadata({ name: person.name, bio: person.bio, picture: person.picture })
+          ),
+      managers: managers.map((account) => ({
+        account,
+        execute: true,
+        transferTokens: false,
+        setMetadata: true,
+        allowanceKey: 0,
+      })),
+    },
+  };
+}
+
 const DAY = 86_400n;
 
 type PostSpec = {
@@ -420,24 +447,7 @@ async function main() {
     const receipt = await apply(
       contracts.MigrationAccountDeployer,
       1n,
-      encodeAbiParameters(ACCOUNTS, [
-        batch.map((key) => {
-          const person = PEOPLE[key] as Person;
-          return {
-            source: lensChainAddress(key),
-            account: {
-              owner: ownerOf(key),
-              proxyAdminOwner: ownerOf(key),
-              metadataURI: person.offchain
-                ? `lens://${keccak256(toHex(`profile:${key}`)).slice(2)}`
-                : toDataURI(
-                    accountMetadata({ name: person.name, bio: person.bio, picture: person.picture })
-                  ),
-              managers: [],
-            },
-          };
-        }),
-      ])
+      encodeAbiParameters(ACCOUNTS, [batch.map((key) => accountImport(key))])
     );
     for (const log of parseEventLogs({
       abi: migrationAccountDeployerAbi,
@@ -623,7 +633,8 @@ async function main() {
   );
 
   // 3. The rest of the history, newest first, and what changed since: an edit, a deletion, an unfollow, an
-  // unblock, a follow again, and a username moving.
+  // unblock, a follow again, a username moving, and two Accounts imported again, in one batch: Kai's new bio, with an
+  // app managing the Account now, and Nina's.
   const older = chronological.filter((spec) => spec.at > 4n * DAY).reverse();
   for (let i = 0; i < older.length; i += 4) {
     await feed(
@@ -650,6 +661,18 @@ async function main() {
       { name: 'ana_posters', key: null },
     ],
     3n
+  );
+  await apply(
+    contracts.MigrationAccountDeployer,
+    3n,
+    encodeAbiParameters(ACCOUNTS, [
+      [
+        accountImport('kai', { bio: 'Protocol engineer. Graphs, feeds, namespaces, and Monad.' }, [
+          KAI_APP,
+        ]),
+        accountImport('nina', { bio: 'Book club on Lens. Reading again.' }),
+      ],
+    ])
   );
 
   // 4. Lens Chain's new activity, from after the mirror started: it notifies.
