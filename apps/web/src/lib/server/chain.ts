@@ -5,6 +5,7 @@ import {
   http,
   isAddressEqual,
   keccak256,
+  TransactionReceiptNotFoundError,
   WaitForTransactionReceiptTimeoutError,
   type Abi,
   type Address,
@@ -12,6 +13,7 @@ import {
   type ContractFunctionName,
   type Hex,
   type Log,
+  type TransactionReceipt,
 } from 'viem';
 import type { PrivateKeyAccount } from 'viem/accounts';
 import { currentConfig } from './instance-config';
@@ -120,7 +122,7 @@ export async function sendAsRelayer<
 
   let receipt;
   try {
-    receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS });
+    receipt = await waitForReceipt(hash);
   } catch (error) {
     // The reservation stays: the transaction may still go in.
     if (error instanceof WaitForTransactionReceiptTimeoutError) {
@@ -133,6 +135,34 @@ export async function sendAsRelayer<
     throw new Error(`Transaction ${hash} reverted`);
   }
   return { hash, blockNumber: receipt.blockNumber, logs: receipt.logs };
+}
+
+/**
+ * A sent transaction's receipt, asked for once a block (the client's polling interval) until `timeout`. Not viem's
+ * waitForTransactionReceipt, which also polls the block number, and looks the transaction up to notice a replacement:
+ * Monad's RPC only returns transactions that are in a block
+ * ([JSON-RPC overview](https://docs.monad.xyz/reference/json-rpc/overview)), so the lookup fails and retries with a
+ * growing backoff until the transaction is in, and can't notice one.
+ */
+export async function waitForReceipt(
+  hash: Hex,
+  timeout = RECEIPT_TIMEOUT_MS
+): Promise<TransactionReceipt> {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    // A transaction just sent is in the next block at the earliest.
+    await new Promise((resolve) => setTimeout(resolve, publicClient.pollingInterval));
+    try {
+      return await publicClient.getTransactionReceipt({ hash });
+    } catch (error) {
+      if (!(error instanceof TransactionReceiptNotFoundError)) {
+        throw error;
+      }
+    }
+    if (Date.now() >= deadline) {
+      throw new WaitForTransactionReceiptTimeoutError({ hash });
+    }
+  }
 }
 
 /**
