@@ -1,5 +1,5 @@
 import type { Address } from 'viem';
-import { ADDRESS_BOOKS } from './address-books';
+import { ADDRESS_BOOKS, MIRROR_ADDRESS_BOOKS } from './address-books';
 
 /** The contracts the client calls or indexes, by their name in the deployment scripts' address book. */
 export const CONTRACT_NAMES = [
@@ -54,4 +54,43 @@ export function getDeployment(chainId: number): Deployment {
     );
   }
   return deployment;
+}
+
+/**
+ * The read-only mirror of Lens Chain (README, Mirror mode): a Lens deployment in migration mode that is never sealed,
+ * the importers behind its canonical proxies. Its address book is a whole deployment's, plus the deployer of the
+ * account importers.
+ */
+export type MirrorDeployment = Deployment & {
+  contracts: Deployment['contracts'] & { MigrationAccountDeployer: Address };
+};
+
+/**
+ * The mirrors' address books, in packages/protocol/deployments/mirror (`pnpm sync:contracts --mirror`). A chain's
+ * mirror that isn't deployed yet has a placeholder book, which says so.
+ */
+const MIRROR_BOOKS: ({ chainId: number; placeholder?: string } & Record<string, unknown>)[] =
+  MIRROR_ADDRESS_BOOKS;
+
+export function getMirrorDeployment(chainId: number): MirrorDeployment {
+  const book = MIRROR_BOOKS.find((candidate) => candidate.chainId === chainId);
+  if (!book) {
+    throw new Error(
+      `No mirror of Lens Chain is known on chain ${chainId} (known: ${MIRROR_BOOKS.map((mirror) => mirror.chainId).join(', ')})`
+    );
+  }
+  if (book.placeholder) {
+    throw new Error(book.placeholder);
+  }
+  const deployment = parse(book as AddressBook);
+  const deployer = (book.MigrationAccountDeployer as { address?: Address } | undefined)?.address;
+  if (!deployer) {
+    throw new Error(
+      `The mirror's address book of chain ${chainId} has no MigrationAccountDeployer`
+    );
+  }
+  return {
+    ...deployment,
+    contracts: { ...deployment.contracts, MigrationAccountDeployer: deployer },
+  };
 }

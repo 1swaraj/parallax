@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { getChain, getDeployment } from '@lens-monad/protocol';
+import { getChain } from '@lens-monad/protocol';
 import { APP_NAME, APP_TAGLINE } from './brand';
-import { CHAIN_ID } from './config';
+import { CHAIN_ID, deployment } from './config';
 import { ModerationPolicy } from './moderation-policy';
 
 const url = z
@@ -31,7 +31,7 @@ export const InstanceConfig = z
       .regex(/^0x[0-9a-fA-F]{40}$/)
       // Fail closed: a zero router would make every sponsored action and sign-up target nothing.
       .refine((value) => !/^0x0{40}$/.test(value), 'SponsorRouter must be a nonzero address')
-      .default(getDeployment(CHAIN_ID).contracts.SponsorRouter),
+      .default(deployment.contracts.SponsorRouter),
     relayPaused: z.boolean().default(false),
     sponsorGasBudgetPerHour: gas.nullable().default(null),
     sponsorMaxGasPerTx: gas.default('1500000'),

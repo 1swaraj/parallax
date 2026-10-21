@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { isAddressEqual } from 'viem';
 import { useLensActions } from '@/lib/actions';
-import { contracts } from '@/lib/config';
+import { contracts, MIRROR } from '@/lib/config';
 import { IndexerError, useAccountPosts, useFollowList, useProfile } from '@/lib/indexer';
 import { useSession } from '@/lib/session';
 import { useMyLikedPosts } from '@/lib/likes';
@@ -51,15 +51,16 @@ function ProfileActions({ profile }: { profile: ProfileView }) {
     onError: (error) => toast.error(error.message),
   });
 
-  if (isSelf) {
+  if (isSelf && !MIRROR) {
     return <Button onClick={editProfile}>Edit profile</Button>;
   }
+  const lensChainAddress = account.lensChainAddress;
   return (
     <div className="flex items-center gap-2">
       {dialog}
       <Dropdown
         items={[
-          { label: 'Report profile', icon: 'block', onSelect: openReport },
+          { label: 'Report profile', icon: 'block', onSelect: openReport, hidden: isSelf },
           {
             label: 'Copy account address',
             icon: 'link',
@@ -69,12 +70,21 @@ function ProfileActions({ profile }: { profile: ProfileView }) {
                 .then(() => toast.show('Address copied')),
           },
           {
+            label: 'Copy Lens Chain address',
+            icon: 'link',
+            hidden: !lensChainAddress,
+            onSelect: () =>
+              navigator.clipboard
+                .writeText(lensChainAddress!)
+                .then(() => toast.show('Lens Chain address copied')),
+          },
+          {
             label: relationship?.blocking
               ? `Unblock ${atHandle(account)}`
               : `Block ${atHandle(account)}`,
             icon: 'block',
             danger: !relationship?.blocking,
-            hidden: !viewer,
+            hidden: !viewer || MIRROR,
             onSelect: () =>
               relationship?.blocking
                 ? toggleBlock.mutate(false)
@@ -93,7 +103,7 @@ function ProfileActions({ profile }: { profile: ProfileView }) {
           </Button>
         )}
       />
-      {relationship?.blocking ? (
+      {MIRROR ? null : relationship?.blocking ? (
         <Button
           variant="destructive"
           disabled={toggleBlock.isPending}
@@ -116,7 +126,9 @@ function ProfileHeader({ profile }: { profile: ProfileView }) {
       {/* A flat band carrying the account's onchain identity, as metadata. */}
       <div className="dot-grid flex h-32 items-end justify-end border-b border-border-default bg-bg-subtle px-4 pb-3 sm:h-44">
         <span className="mono-caps text-[11px] leading-4 text-text-tertiary">
-          Lens account · {shortAddress(account.address)}
+          {account.lensChainAddress
+            ? `Mirrored from Lens Chain · ${shortAddress(account.lensChainAddress)}`
+            : `Lens account · ${shortAddress(account.address)}`}
         </span>
       </div>
       <div className="px-4 pb-4">
@@ -136,10 +148,13 @@ function ProfileHeader({ profile }: { profile: ProfileView }) {
         {account.bio && (
           <RichText text={account.bio} className="mt-3 max-w-[65ch] text-base text-text-primary" />
         )}
-        <div className="mt-3 flex items-center gap-1.5 text-sm text-text-tertiary">
-          <Icon name="calendar" size={16} />
-          {joinedLabel(account.createdAt)}
-        </div>
+        {/* A mirror knows when it copied an account, not when it joined Lens. */}
+        {!MIRROR && (
+          <div className="mt-3 flex items-center gap-1.5 text-sm text-text-tertiary">
+            <Icon name="calendar" size={16} />
+            {joinedLabel(account.createdAt)}
+          </div>
+        )}
         <div className="mt-3 flex gap-5 text-sm">
           <Link href={`/u/${handle}/following`} className="focus-ring hover:underline">
             <span className="font-mono font-medium text-text-primary tabular-nums">
@@ -208,8 +223,9 @@ export function ProfilePage({ handle }: { handle: string }) {
   const { account: viewer } = useSession();
   const [tab, setTab] = useState<'posts' | 'replies' | 'likes'>('posts');
   const posts = useAccountPosts(handle, tab === 'replies', viewer);
-  const isSelf = !!viewer && !!query.data && isAddressEqual(viewer, query.data.account.address);
-  // Likes are private, like X's: only you see what you liked.
+  // Likes are private, like X's: only you see what you liked. A mirror's client has none.
+  const isSelf =
+    !MIRROR && !!viewer && !!query.data && isAddressEqual(viewer, query.data.account.address);
   const likes = useMyLikedPosts(isSelf && tab === 'likes' ? viewer : null);
   usePageTitle(
     query.data ? `${displayName(query.data.account)} (${atHandle(query.data.account)})` : null

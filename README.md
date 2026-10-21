@@ -190,9 +190,12 @@ pnpm --filter @lens-monad/indexer test:e2e    # the indexer's API (chain and ind
 pnpm --filter @lens-monad/web test:e2e        # the app's server end to end (chain, indexer and web running)
 node apps/web/test/ui/walkthrough.mjs         # the UI in Chromium: sign up, post, reply, an image, follow, dark mode, mobile
 node apps/web/test/ui/passkey.mjs             # passkey accounts, with Chrome's virtual authenticator
+pnpm --filter @lens-monad/indexer test:e2e:mirror  # mirror mode's API, on the local mirror (Mirror mode, below)
+node apps/web/test/ui/mirror.mjs              # mirror mode's read-only client in Chromium, on the local mirror
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of these but the UI scripts on every pull request and push to `main`: the
+CI (`.github/workflows/ci.yml`) runs all of these but the UI scripts and the mirror's end-to-end suite, which needs a
+`lens-monad-protocol` revision with the importers, on every pull request and push to `main`: the
 unit tests against a Postgres service, so the shared implementations' tests run too, a check that MediaStore's
 committed artifact is what its source builds to, and the end-to-end suites against `pnpm chain`, the indexer and the
 app. `lens-monad-protocol` is private, so the end-to-end job needs a `LENS_CONTRACTS_TOKEN` secret that can read it
@@ -608,6 +611,158 @@ their own relayer and database, or none.
 the indexer's lag, the database, the gas used this hour and whether relaying is paused, and lists the problems; it
 never returns keys or URLs. Signed-in admins can read these details too. To stop sponsoring, use Admin → Sponsorship & limits → Pause (within 10 seconds), or set the `RELAY_PAUSED` env override and restart the server; to stop a relayer at once, the Safe
 calls `setRelayer(relayer, false)` (its Accounts get a 503 until the key is removed or allowed again).
+
+## Mirror mode
+
+Until Lens moves to Monad, Lens is written on Lens Chain, through Hey, Orb and the other Lens apps. Mirror mode runs
+Parallax as a **read-only client of a mirror of Lens Chain on Monad testnet**: a Lens V3 deployment in migration mode
+(`lens-monad-protocol`'s `MIGRATION.md`, PR #8 onwards) that is never sealed, which the migrator
+([lens-monad-migration](https://github.com/monad-developers/lens-monad-migration)) keeps in sync with Lens Chain. Its
+importers stand behind the canonical proxies, so normal writes revert, and they emit importer events rather than the
+Lens events the launch deployment's indexer reads. Two writable copies of Lens would fork the graph, so the mirror's
+client writes nothing.
+
+A mirror is a separate deployment of the app, with its own indexer, Postgres and web project: the writable testnet
+Parallax stays as it is. After the cutover, migrated history on Monad is only importer events with Lens Chain's content
+links, so the same code serves the real migration's history too.
+
+### The indexer (`PONDER_MIRROR=true`)
+
+The config lists the mirror's importers instead of the launch deployment's contracts (`ponder.config.ts`), from the
+mirror's address book (`packages/protocol/deployments/mirror/<chainId>.json`, `getMirrorDeployment`), and
+`src/mirror-handlers.ts` turns their events into the tables the API reads:
+
+| Importer                                | Event                           | Writes                                                                        |
+| --------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------- |
+| `MigrationAccountDeployer`              | `AccountMapped(source, target)` | The Account's Lens Chain address (`lensChainAddress`)                         |
+| Account proxies (`MigrationAccount`)    | `AccountImported`               | The Account: owner and profile from the import's calldata, proven by its hash |
+| Global Namespace (`MigrationNamespace`) | `UsernameImported`              | Usernames, moved, unassigned or burned                                        |
+| Global Feed (`MigrationFeed`)           | `PostImported`                  | Posts, edits and deletions, hashtags, counts                                  |
+| Global Feed (`MigrationFeed`)           | `FeedCountersImported`          | Lens Chain's post count, for the history's sync                               |
+| Global Graph (`MigrationGraph`)         | `FollowImported`                | Follows and unfollows (`active` false), counts                                |
+| `AccountBlockingRule`                   | `BlockImported`                 | Blocks and unblocks                                                           |
+
+- **Order.** Records arrive in any order: Accounts first, then the active Accounts' content, then the rest of the
+  history, newest first, while Lens Chain's new activity streams throughout. A later import of a key is an update.
+  Pages are ordered by the records' original Lens Chain time, never Monad's: a post's position is its creation time
+  and its sequential id in the Lens Chain feed, a follow's its time and a tiebreaker from the pair. Cursors and
+  notification ids keep their shape.
+- **Counts** towards an Account or a post that isn't imported yet wait in the `mirror_pending_account` and
+  `mirror_pending_post` tables, until it arrives. So does a username assigned to an Account that isn't in yet.
+- **Notifications.** Only records from after the mirror's start, the block time of its first import, notify: history
+  never does. A new reply, quote or repost of a post that isn't imported yet notifies its author once it is. Mentions
+  are notified for posts whose text is onchain (`@name` or Lens' `@lens/name`). Notifications are ordered by their
+  Lens Chain time too, so one imported after a newer one was seen doesn't count as unread.
+- **Text.** Lens Chain's records are anyone's: NUL characters, which Postgres refuses, are taken out of their text.
+- **Accounts' state comes from the import's transaction**, with no `eth_call`. The accounts operator calls
+  `MigrationAccountDeployer.applyBatch(sequence, revision, payload)`, where `payload` is `abi.encode(AccountImport[])`
+  (up to 10 Accounts, each `(source, AccountInput)`). Each Account emits `AccountImported(revision, stateHash)`, with
+  `stateHash = keccak256(abi.encode(input))` of the `AccountInput` it took. The indexer checks that the transaction calls
+  the mirror's deployer's `applyBatch`, decodes the payload, and takes the owner and profile of the item whose input
+  hashes to the event's `stateHash`, so the hash proves them. Ponder already fetches the blocks of the events with
+  their transactions, so this costs no request. Only when nothing matches (the batch was sent through another
+  contract, say) does the indexer read `readAccount()` at the event's block, and `GET /mirror` counts those reads
+  (`accountReads`).
+- **RPC: no archive needed.** Monad full nodes serve all historic blocks, transactions, receipts and logs, but only
+  recent state ([historical data](https://docs.monad.xyz/developer-essentials/historical-data)), and only the fallback
+  reads state. On 2026-10-21, Monad testnet's public endpoints kept about 15 to 72 days of state (QuickNode about 72,
+  Monad Foundation about 20, Ankr about 15). The [testnets](https://docs.monad.xyz/developer-essentials/testnets) page
+  lists the QuickNode and Monad Foundation endpoints as archive, which those lookbacks contradict. Public endpoints
+  limit requests per IP, which shared hosts such as Railway share between their tenants: use a keyed endpoint there.
+  `eth_getLogs` ranges were limited to about 100 blocks on QuickNode, Monad Foundation, Ankr and dRPC, and 1,000 on
+  thirdweb: set `PONDER_GET_LOGS_RANGE` to the endpoint's.
+- `GET /mirror` reports how far the import is: Accounts, posts of Lens Chain's post count, how far back the history
+  goes, the latest import, and the Account imports read from the chain (`accountReads`, 0 unless the operator calls
+  the deployer through another contract).
+- Accounts created on the mirror's deployment with the AccountFactory, which anyone can call, aren't Lens Chain's: the
+  indexer only reads the Accounts `MigrationAccountDeployer` maps. A Lens Chain Account's creation time isn't imported,
+  so the app doesn't show when it joined.
+
+**Offchain content.** Lens Chain's posts and profiles point at their metadata with `lens://` (Grove,
+`https://api.grove.storage/<key>`), `ipfs://`, `ar://`, `https://` or `data:` URIs. The indexer reads `data:` metadata
+when it indexes, and the API reads the rest when it serves a post or an Account (`src/api/content.ts`): fetching 21M
+documents while indexing would take weeks, and tie the index to those servers. Reads go through a cache (15 minutes, a
+minute for failures, 20,000 entries and 32 MB), 16 at a time, 8s and 256 KB each, and a page waits 2.5s at most
+(`METADATA_DEADLINE_MS`): what isn't in by then shows as a link, and is cached for the next page. The fetcher refuses
+anything that isn't public (`src/api/public-fetch.ts`): https only, to public unicast addresses only, every address the
+name resolves to checked and the connection pinned to it, each redirect checked again, no credentials in URLs, no
+single-label or localhost names, and DNS through c-ares with its own timeout.
+Metadata of every Lens type and version shows its text (an article's title first), its image, and a link to its
+other media (video, audio, files, links); a post whose metadata can't be read links to it. Images and pictures load in
+browsers through the gateways. Search, hashtags and trends only cover posts whose text is onchain.
+
+**Spam.** Most of Lens Chain's recent posts come from spam farms, many of them explicit: in a sample of 40 recent
+posts, 26 authors had no followers on Lens Chain and posted only spam, while every other author had 50 to 8,000
+followers. The Everyone timeline, post search and the trends leave out authors with fewer followers than
+`MIRROR_TIMELINE_MIN_FOLLOWERS` (1), once the mirror has imported follows. Profiles, threads and the Following timeline
+show everything: hide the rest with [Moderation](#moderation), e.g. a link filter on the spam's domains, which also
+reads the image and media links of posts.
+
+### The app (`NEXT_PUBLIC_MIRROR=true`)
+
+- A banner on every page says it's a read-only preview of Lens data mirrored to Monad testnet, and that posting
+  happens in Lens apps, with the history's sync: posts copied of Lens Chain's, and how far back they go.
+- Anyone can read without signing in: no landing page.
+- Nothing writes: no composer, reply box, repost, quote, like, follow, block, sign-up, profile edit, network fees or
+  email digests; replies, reposts and quotes show as counts. The server refuses those routes with a 403 too
+  (`src/proxy.ts`). Reports to the instance's moderators still work.
+- Signing in is optional, with a wallet only (passkeys make new wallets, which own no Lens Chain Account). It shows
+  the Lens Accounts the wallet owns, their Following timeline and notifications, and switches between them. A wallet
+  with no mirrored Account is told so.
+- The address book is the mirror's (`getMirrorDeployment`), and `/api/health` skips the relayer and sponsorship
+  checks.
+
+### Run it locally
+
+Needs a built checkout of `lens-monad-protocol` with the importers (PR #8, `feat/migration-cutover`, or later):
+
+```sh
+LENS_CONTRACTS_DIR=../lens-monad-protocol pnpm mirror:chain   # terminal 1: the node, the mirror, a slice of "Lens Chain"
+PONDER_MIRROR=true pnpm indexer                               # terminal 2: http://localhost:42069
+NEXT_PUBLIC_MIRROR=true pnpm web                              # terminal 3: http://localhost:3000
+```
+
+`pnpm mirror:chain` (`scripts/mirror-chain.sh`) deploys Lens in migration mode with the protocol's own scripts,
+promotes and syncs the mirror's address book (`pnpm sync:contracts --mirror`), then imports a made-up slice of Lens
+Chain through the importers, as the migrator does (`scripts/mirror-seed.ts`, `MIRROR_SEED=0` to skip): nine
+Accounts, five to a batch, and their usernames, then recent posts, follows and blocks, then older history, newest
+first, with an edit, a deletion, an unfollow, an unblock, a username moving and two Accounts imported again in one
+batch (a new bio, and a manager), and last new activity, which notifies. Posts use several Lens metadata types and
+versions, and one offchain URI that can't be read. To sign in, use anvil's 10th account
+(`0xa0Ee7A142d267C1f36714E4a8F75612F20a79720`), which owns @ana_lima and @ana_studio. Stop `pnpm chain` first: both
+use port 8545 and chain 31337. Then `pnpm --filter @lens-monad/indexer test:e2e:mirror` and
+`node apps/web/test/ui/mirror.mjs` check the result: the e2e test also checks, from Ponder's `/metrics`, that indexing
+made no `eth_call`.
+
+### Point it at the testnet mirror
+
+The mirror isn't deployed yet: `packages/protocol/deployments/mirror/10143.json` is a placeholder, and the indexer and
+the app refuse to start in mirror mode on 10143 until it's replaced.
+
+1. **Address book.** Once the mirror is deployed (`MIGRATION.md`, with `MIGRATION_MODE=true`, and no release), sync
+   its book from the checkout that deployed it: `LENS_CONTRACTS_DIR=… pnpm sync:contracts --mirror`. It copies the
+   importers' ABIs and the migration-mode books only, to `packages/protocol/deployments/mirror`, and regenerates
+   `address-books.ts`; commit them. A plain `pnpm sync:contracts` leaves both alone. With only the JSON at hand, put it there and run `pnpm sync:contracts --address-books`.
+2. **Indexer**, a Railway service of its own with its own Postgres, set up as in
+   [Full mode](#full-mode-own-indexer-on-railway), with `PONDER_MIRROR=true`, `PONDER_CHAIN_ID=10143`, a keyed
+   `PONDER_RPC_URL` (no archive needed, above) and its `PONDER_GET_LOGS_RANGE`. See `apps/indexer/.env.mirror.example`.
+   Give it a public domain, wait for `/ready`, and check `/mirror`: `accountReads` should stay 0.
+3. **App**, a Vercel project of its own with its own database, as in
+   [Deploying to testnet or mainnet](#deploying-to-testnet-or-mainnet), with `NEXT_PUBLIC_MIRROR=true` and
+   `NEXT_PUBLIC_CHAIN_ID=10143` at build time, and `INDEXER_URL` the mirror's indexer. No relayer keys or sponsorship
+   settings: see `apps/web/.env.mirror.example`. Set `DATABASE_URL` and `INSTANCE_SECRET` to moderate it from `/admin`.
+4. **Check** `/api/health`, the banner's sync on Home, and sign in with a wallet that owns a mirrored Account.
+
+| Variable                        | Where   | What                                                                                                            |
+| ------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `PONDER_MIRROR`                 | Indexer | `true`: index the chain's mirror of Lens Chain instead of its launch deployment                                 |
+| `MIRROR_TIMELINE_MIN_FOLLOWERS` | Indexer | Followers an author needs for the Everyone timeline, search and trends, once the mirror has follows (1; 0: all) |
+| `OFFCHAIN_METADATA`             | Indexer | Read offchain metadata when serving posts and Accounts: on in mirror mode, off otherwise                        |
+| `METADATA_DEADLINE_MS`          | Indexer | How long a page waits for offchain metadata (2500)                                                              |
+| `GROVE_GATEWAY`                 | Indexer | Where `lens://` is read (`https://api.grove.storage/`)                                                          |
+| `IPFS_GATEWAY`                  | Indexer | Where `ipfs://` is read (`https://ipfs.io/ipfs/`)                                                               |
+| `ARWEAVE_GATEWAY`               | Indexer | Where `ar://` is read (`https://arweave.net/`)                                                                  |
+| `NEXT_PUBLIC_MIRROR`            | App     | `true`: the read-only client of the mirror. Read at build time                                                  |
 
 ## Relayers and sponsorship
 

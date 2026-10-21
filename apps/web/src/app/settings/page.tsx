@@ -12,9 +12,10 @@ import { useTheme, type Theme } from '@/components/theme';
 import { useToast } from '@/components/toast';
 import { Button, buttonClassName, CornerBrackets, PageHeader } from '@/components/ui';
 import { useGasMode, useLensActions, useSponsorship, type GasMode } from '@/lib/actions';
+import { MIRROR } from '@/lib/config';
 import { useBrand } from '@/lib/runtime-config';
 import { useNetwork } from '@/lib/runtime-config';
-import { useProfile } from '@/lib/indexer';
+import { useOwnedAccounts, useProfile } from '@/lib/indexer';
 import { useSession } from '@/lib/session';
 import { usePageTitle } from '@/lib/title';
 
@@ -112,13 +113,18 @@ function SelectionCard({
 }
 
 function AccountSection() {
-  const { account, signOut } = useSession();
+  const { account, owner, signOut, selectAccount } = useSession();
   const { data } = useProfile(account, null);
+  const { data: owned } = useOwnedAccounts(owner);
   const editProfile = useEditProfile();
   const { mutate: disconnect } = useDisconnect();
+  const toast = useToast();
   if (!data) {
     return null;
   }
+  const others = (owned ?? []).filter(
+    (other) => other.address.toLowerCase() !== data.account.address.toLowerCase()
+  );
   return (
     <Section title="Your account">
       <div className="flex flex-wrap items-center gap-4">
@@ -130,7 +136,7 @@ function AccountSection() {
           <div className="truncate text-text-tertiary">{atHandle(data.account)}</div>
         </div>
         <div className="flex gap-2">
-          <Button onClick={editProfile}>Edit profile</Button>
+          {!MIRROR && <Button onClick={editProfile}>Edit profile</Button>}
           <Button
             variant="ghost"
             onClick={() => signOut.mutate(undefined, { onSuccess: () => disconnect() })}
@@ -139,6 +145,31 @@ function AccountSection() {
           </Button>
         </div>
       </div>
+      {others.length > 0 && (
+        <div className="mt-4 flex flex-col gap-2 border-t border-border-default pt-4">
+          <p className="text-sm text-text-secondary">Your wallet also owns:</p>
+          {others.map((other) => (
+            <div key={other.address} className="flex items-center gap-3">
+              <Avatar account={other} size={32} />
+              <div className="min-w-0 flex-1 text-sm">
+                <div className="truncate font-semibold text-text-primary">{displayName(other)}</div>
+                <div className="truncate text-text-tertiary">{atHandle(other)}</div>
+              </div>
+              <Button
+                size="sm"
+                disabled={selectAccount.isPending}
+                onClick={() =>
+                  selectAccount.mutate(other.address, {
+                    onError: (error) => toast.error(error.message),
+                  })
+                }
+              >
+                Switch
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
     </Section>
   );
 }
@@ -270,13 +301,19 @@ export default function SettingsPage() {
         <Section title="Your account">
           <div className="flex items-center justify-between gap-4">
             <p className="text-sm text-text-secondary">
-              Sign in to edit your profile and choose who pays network fees.
+              {MIRROR
+                ? owner
+                  ? 'This wallet owns no Lens account the mirror has copied yet.'
+                  : 'Sign in with your wallet to see the posts of the people your Lens accounts follow.'
+                : 'Sign in to edit your profile and choose who pays network fees.'}
             </p>
             <div className="flex gap-2">
               {owner && <SignOutButton />}
-              <Button variant="primary" onClick={openAuth}>
-                {owner ? 'Create account' : 'Sign in'}
-              </Button>
+              {!(MIRROR && owner) && (
+                <Button variant="primary" onClick={openAuth}>
+                  {owner ? 'Create account' : 'Sign in'}
+                </Button>
+              )}
             </div>
           </div>
         </Section>
@@ -304,11 +341,15 @@ export default function SettingsPage() {
           ]}
         />
       </Section>
-      {account && <FeesSection />}
-      <EmailSettings />
+      {account && !MIRROR && <FeesSection />}
+      {!MIRROR && <EmailSettings />}
       <Section
         title="Network"
-        description={`${APP_NAME} reads and writes Lens Protocol V3 contracts on ${chain.name}. Any Lens app can read the same data.`}
+        description={
+          MIRROR
+            ? `${APP_NAME} reads a mirror of Lens Chain on ${chain.name}: Lens Protocol V3 contracts holding a copy of Lens Chain's accounts, usernames, posts and follows. Lens is written on Lens Chain, through Lens apps.`
+            : `${APP_NAME} reads and writes Lens Protocol V3 contracts on ${chain.name}. Any Lens app can read the same data.`
+        }
       >
         <div>
           <SpecRow topic="Network" value={`${chain.name} (${chain.id})`} href={EXPLORER_URL} />
@@ -321,7 +362,7 @@ export default function SettingsPage() {
               ['Feed', contracts.LensGlobalFeed],
               ['Graph', contracts.LensGlobalGraph],
               ['Namespace', contracts.LensGlobalNamespace],
-              ['SponsorRouter', contracts.SponsorRouter],
+              ...(MIRROR ? [] : [['SponsorRouter', contracts.SponsorRouter] as const]),
             ] as const
           ).map(([topic, address]) => (
             <SpecRow

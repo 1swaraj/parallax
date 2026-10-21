@@ -226,7 +226,12 @@ function dimension(value: string | undefined) {
 
 /** The image of a post's inline Lens metadata (image posts' `image`), or null when it has none. */
 export function readPostImage(contentURI: string): PostImage | null {
-  const image = record(record(record(parseDataURI(contentURI))?.lens)?.image);
+  return readImage(record(record(parseDataURI(contentURI))?.lens)?.image);
+}
+
+/** A Lens metadata image (`{ item, type, altTag, attributes }`), or null without an item and a type. */
+export function readImage(value: unknown): PostImage | null {
+  const image = record(value);
   if (!image || typeof image.item !== 'string' || typeof image.type !== 'string') {
     return null;
   }

@@ -5,7 +5,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { isAddressEqual } from 'viem';
 import { useLensActions } from '@/lib/actions';
-import { contracts } from '@/lib/config';
+import { contracts, MIRROR } from '@/lib/config';
 import { useProfile } from '@/lib/indexer';
 import { useAuthModal } from './modals';
 import { useToast } from './toast';
@@ -13,7 +13,8 @@ import { Button } from './ui';
 
 /**
  * Follow / Following. Secondary everywhere but a profile header (`primary`), so a list never shows several primary
- * buttons. Takes the relationship when the caller batch-loaded it, fetches it otherwise. Flips optimistically.
+ * buttons. Takes the relationship when the caller batch-loaded it, fetches it otherwise. Flips optimistically. None in
+ * a mirror's client, where follows happen on Lens Chain.
  */
 export function FollowButton({
   target,
@@ -48,7 +49,7 @@ export function FollowButton({
     onError: (error) => toast.error(error.message),
   });
 
-  if (account && isAddressEqual(account, target.address)) {
+  if (MIRROR || (account && isAddressEqual(account, target.address))) {
     return null;
   }
   if (known?.blockedBy || known?.blocking) {

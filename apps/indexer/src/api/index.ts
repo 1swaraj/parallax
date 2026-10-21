@@ -1,14 +1,23 @@
+import { by, createContentReader, deadlineIn } from './content';
 import { publicReads } from './public-reads';
 import {
+  contentUrl,
+  DEFAULT_GATEWAYS,
   MEDIA_STORE_ADDRESS,
   mediaId,
   mediaPath,
   sniffImageType,
   type AccountView,
+  type Gateways,
   type ImageView,
+  type MediaItem,
+  type MediaLinkView,
+  type MirrorStatusView,
   type NotificationView,
   type Page,
+  type PostImage,
   type PostView,
+  type Profile,
   type ProfileView,
   type Relationship,
   type ThreadView,
@@ -23,6 +32,7 @@ import {
   count,
   desc,
   eq,
+  exists,
   graphql,
   gte,
   ilike,
@@ -43,10 +53,12 @@ import schema, {
   follow,
   hashtag,
   mediaChunk,
+  mirrorStatus,
   notification,
   post,
 } from 'ponder:schema';
 import { getAddress, isAddress, isAddressEqual, type Address } from 'viem';
+import { MIRROR } from '../mode';
 
 type AccountRow = typeof account.$inferSelect;
 type PostRow = typeof post.$inferSelect;
@@ -73,6 +85,40 @@ const MEDIA_BLOCKLIST = new Set(
     .map((id) => id.trim().toLowerCase())
     .filter(Boolean)
 );
+
+function gateway(name: string, fallback: string) {
+  const value = process.env[name] || fallback;
+  if (!/^https:\/\/[^/?#]+\/([^?#]*\/)?$/.test(value)) {
+    throw new Error(`${name} must be an https URL ending with /, got ${value}`);
+  }
+  return value;
+}
+
+const GATEWAYS: Gateways = {
+  grove: gateway('GROVE_GATEWAY', DEFAULT_GATEWAYS.grove),
+  ipfs: gateway('IPFS_GATEWAY', DEFAULT_GATEWAYS.ipfs),
+  arweave: gateway('ARWEAVE_GATEWAY', DEFAULT_GATEWAYS.arweave),
+};
+
+/**
+ * Offchain metadata (lens://, ipfs://, ar://, https://), read as posts and Accounts are served (content.ts): on in
+ * mirror mode, whose Lens Chain content is nearly all offchain, or with OFFCHAIN_METADATA=true. Off, posts show their
+ * inline metadata only, as the launch deployment's Parallax posts are.
+ */
+const reader =
+  (process.env.OFFCHAIN_METADATA ?? String(MIRROR)) === 'true'
+    ? createContentReader({ gateways: GATEWAYS })
+    : null;
+
+/** How long a page waits for offchain metadata. What isn't in by then shows as a link, and is cached for later. */
+const METADATA_DEADLINE_MS = Number(process.env.METADATA_DEADLINE_MS ?? 2_500);
+
+/**
+ * Mirror mode: the Everyone timeline, post search and the trends leave out authors with fewer followers than this
+ * (MIRROR_TIMELINE_MIN_FOLLOWERS, 0 for none). Most of Lens Chain's recent posts come from spam farms of accounts no one
+ * follows, many of them explicit.
+ */
+const TIMELINE_MIN_FOLLOWERS = MIRROR ? Number(process.env.MIRROR_TIMELINE_MIN_FOLLOWERS ?? 1) : 0;
 
 const app = new Hono();
 
@@ -162,27 +208,53 @@ function nextCursor(rows: Position[], limit: number) {
   return rows.length > limit && last ? `${last.blockNumber}:${last.logIndex}` : null;
 }
 
-function toAccountView(row: AccountRow): AccountView {
+/** A URL browsers can load content at: https, or with offchain metadata on, a gateway's for lens://, ipfs:// and ar://. */
+function linkTo(uri: string): string | null {
+  return reader ? contentUrl(uri, GATEWAYS) : uri.startsWith('https://') ? uri : null;
+}
+
+/** An Account, with the profile read from its offchain metadata when there's one. */
+function toAccountView(row: AccountRow, profile?: Profile | null): AccountView {
+  const picture = profile ? profile.picture : row.picture;
   return {
     address: getAddress(row.address),
     owner: getAddress(row.owner),
     username: row.username,
-    name: row.name,
-    bio: row.bio,
-    picture: row.picture,
+    name: profile ? profile.name : row.name,
+    bio: profile ? profile.bio : row.bio,
+    picture: picture && reader ? linkTo(picture) : picture,
     sponsored: row.sponsored,
     followers: row.followers,
     following: row.following,
     posts: row.posts,
     createdAt: row.createdAt.toString(),
+    ...(MIRROR
+      ? { lensChainAddress: row.lensChainAddress ? getAddress(row.lensChainAddress) : null }
+      : {}),
   };
+}
+
+/** Account views, with the offchain profiles read by the deadline. */
+async function accountViews(rows: AccountRow[]): Promise<AccountView[]> {
+  if (!reader) {
+    return rows.map((row) => toAccountView(row));
+  }
+  const deadline = deadlineIn(METADATA_DEADLINE_MS);
+  const profiles = await Promise.all(
+    rows.map((row) =>
+      row.metadataUri && !row.metadataUri.startsWith('data:')
+        ? by(reader.profile(row.metadataUri), deadline, null)
+        : null
+    )
+  );
+  return rows.map((row, i) => toAccountView(row, profiles[i]));
 }
 
 /**
  * Images in this chain's MediaStore are served by /media, through the app's origin. Others only when their metadata
- * points at an https URL: the browser loads them from there.
+ * points at an https URL (or a gateway's, with offchain metadata on): the browser loads them from there.
  */
-function toImageView(image: PostRow['image']): ImageView | null {
+function toImageView(image: PostImage | null): ImageView | null {
   if (!image) {
     return null;
   }
@@ -190,12 +262,52 @@ function toImageView(image: PostRow['image']): ImageView | null {
   const url =
     locator && locator.chainId === CHAIN_ID && isAddressEqual(locator.store, MEDIA_STORE_ADDRESS)
       ? mediaPath(locator.author, locator.id)
-      : image.item.startsWith('https://')
-        ? image.item
-        : null;
+      : linkTo(image.item);
   return url
     ? { url, type: image.type, alt: image.alt, width: image.width, height: image.height }
     : null;
+}
+
+function toMediaLink(media: MediaItem | null): MediaLinkView | null {
+  const url = media && linkTo(media.item);
+  return media && url ? { kind: media.kind, url, type: media.type } : null;
+}
+
+type PostContent = Pick<PostView, 'content' | 'image' | 'media'>;
+
+/**
+ * With offchain metadata on, what posts show: their metadata, inline or offchain, of any type and version, as far as
+ * it's read by the deadline. A post whose metadata isn't read links to it.
+ */
+async function postContents(rows: PostRow[]): Promise<Map<bigint, PostContent>> {
+  const contents = new Map<bigint, PostContent>();
+  if (!reader) {
+    return contents;
+  }
+  const deadline = deadlineIn(METADATA_DEADLINE_MS);
+  await Promise.all(
+    rows
+      .filter((row) => !row.deleted && row.contentUri !== '')
+      .map(async (row) => {
+        const metadata = await by(reader.post(row.contentUri), deadline, null);
+        const unread = linkTo(row.contentUri);
+        contents.set(
+          row.id,
+          metadata
+            ? {
+                content: metadata.content,
+                image: toImageView(metadata.image),
+                media: toMediaLink(metadata.media),
+              }
+            : {
+                content: row.content,
+                image: toImageView(row.image),
+                media: unread ? { kind: 'metadata', url: unread, type: null } : null,
+              }
+        );
+      })
+  );
+  return contents;
 }
 
 /** A placeholder for authors the indexer doesn't track, e.g. EOAs posting directly. */
@@ -220,8 +332,9 @@ async function accountsByAddress(addresses: Address[]) {
   const rows = unique.length
     ? await db.select().from(account).where(inArray(account.address, unique))
     : [];
-  const views = new Map(rows.map((row) => [row.address, toAccountView(row)]));
-  return (address: Address) => views.get(address) ?? unknownAccount(address);
+  const views = await accountViews(rows);
+  const byAddress = new Map(rows.map((row, i) => [row.address, views[i]!]));
+  return (address: Address) => byAddress.get(address) ?? unknownAccount(address);
 }
 
 /** Who the viewer blocked. */
@@ -277,9 +390,10 @@ async function hydrate(rows: PostRow[], viewer: Address | null): Promise<PostVie
     ? await db.select().from(post).where(inArray(post.id, referencedIds))
     : [];
   const referencedById = new Map(referenced.map((row) => [row.id, row]));
-  const [authorOf, reposts] = await Promise.all([
+  const [authorOf, reposts, contents] = await Promise.all([
     accountsByAddress([...rows, ...referenced].map((row) => row.author)),
     viewerReposts(viewer, [...rows, ...referenced].map(shownPostId)),
+    postContents([...rows, ...referenced]),
   ]);
 
   const view = (row: PostRow, depth: number): PostView => {
@@ -289,11 +403,12 @@ async function hydrate(rows: PostRow[], viewer: Address | null): Promise<PostVie
     };
     const repliedTo =
       row.repliedPostId === null ? undefined : referencedById.get(row.repliedPostId);
+    const shown = contents.get(row.id);
     return {
       ...(json({
         id: row.id,
         contentUri: row.deleted ? '' : row.contentUri,
-        content: row.deleted ? null : row.content,
+        content: row.deleted ? null : shown ? shown.content : row.content,
         rootPostId: row.rootPostId,
         repliedPostId: row.repliedPostId,
         quotedPostId: row.quotedPostId,
@@ -306,7 +421,8 @@ async function hydrate(rows: PostRow[], viewer: Address | null): Promise<PostVie
         editedAt: row.editedAt,
       }) as Omit<PostView, 'author' | 'quoted' | 'reposted' | 'repliedTo' | 'viewerRepostId'>),
       author: authorOf(row.author),
-      image: row.deleted ? null : toImageView(row.image),
+      image: row.deleted ? null : shown ? shown.image : toImageView(row.image),
+      ...(reader ? { media: shown?.media ?? null } : {}),
       quoted: nested(row.quotedPostId),
       reposted: nested(row.repostedPostId),
       repliedTo: repliedTo
@@ -422,6 +538,30 @@ async function relationships(viewer: Address, targets: Address[]) {
   });
 }
 
+/**
+ * Mirror mode: posts by authors with followers enough for the public timeline, search and trends (TIMELINE_MIN_FOLLOWERS),
+ * once the mirror has follows. Before, no one has followers, and every post would be left out.
+ */
+async function followedAuthor(): Promise<Condition> {
+  if (TIMELINE_MIN_FOLLOWERS === 0) {
+    return undefined;
+  }
+  const [status] = await db
+    .select({ follows: mirrorStatus.follows })
+    .from(mirrorStatus)
+    .where(eq(mirrorStatus.id, 1))
+    .limit(1);
+  return (status?.follows ?? 0) > 0
+    ? inArray(
+        post.author,
+        db
+          .select({ address: account.address })
+          .from(account)
+          .where(gte(account.followers, TIMELINE_MIN_FOLLOWERS))
+      )
+    : undefined;
+}
+
 // Timelines: posts, quotes and reposts, without replies, newest first.
 
 app.get('/timeline', async (c) => {
@@ -429,7 +569,12 @@ app.get('/timeline', async (c) => {
   const cursor = positionParam(c.req.query('cursor'));
   return c.json(
     await postsPage(
-      [isNull(post.repliedPostId), notBlockedBy(viewer), relativeTo(post, 'before', cursor)],
+      [
+        isNull(post.repliedPostId),
+        notBlockedBy(viewer),
+        await followedAuthor(),
+        relativeTo(post, 'before', cursor),
+      ],
       limitOf(c.req.query('limit')),
       viewer
     )
@@ -546,15 +691,22 @@ app.get('/search/posts', async (c) => {
   if (!query) {
     return c.json({ items: [], next: null } satisfies Page<PostView>);
   }
+  // Mirror mode: search leaves out followerless authors too, like the trends it recounts in the app.
+  const followed = await followedAuthor();
   const tag = /^#([\p{L}\d_]+)$/u.exec(query)?.[1];
   if (tag) {
-    return c.json(await hashtagPage(tag.toLowerCase(), viewer, cursor, limit));
+    return c.json(await hashtagPage(tag.toLowerCase(), viewer, cursor, limit, followed));
   }
   // A substring, with LIKE's wildcards and escape character taken literally.
   const pattern = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
   return c.json(
     await postsPage(
-      [ilike(post.content, pattern), notBlockedBy(viewer), relativeTo(post, 'before', cursor)],
+      [
+        ilike(post.content, pattern),
+        notBlockedBy(viewer),
+        followed,
+        relativeTo(post, 'before', cursor),
+      ],
       limit,
       viewer
     )
@@ -566,7 +718,8 @@ async function hashtagPage(
   tag: string,
   viewer: Address | null,
   cursor: Position | null,
-  limit: number
+  limit: number,
+  followed: Condition
 ): Promise<Page<PostView>> {
   const rows = await db
     .select({ post })
@@ -577,6 +730,7 @@ async function hashtagPage(
         eq(hashtag.tag, tag),
         eq(post.deleted, false),
         notBlockedBy(viewer),
+        followed,
         relativeTo(hashtag, 'before', cursor)
       )
     )
@@ -597,6 +751,7 @@ app.get('/trends', async (c) => {
     throw badRequest(`hours is an integer from 1 to ${MAX_TREND_HOURS}`);
   }
   const since = BigInt(Math.floor(Date.now() / 1000) - hours * 3600);
+  const followed = await followedAuthor();
   const recent = db
     .select({ tag: hashtag.tag, blockNumber: hashtag.blockNumber, logIndex: hashtag.logIndex })
     .from(hashtag)
@@ -608,7 +763,15 @@ app.get('/trends', async (c) => {
             .select({ id: post.id })
             .from(post)
             .where(and(eq(post.id, hashtag.postId), eq(post.deleted, true)))
-        )
+        ),
+        followed
+          ? exists(
+              db
+                .select({ id: post.id })
+                .from(post)
+                .where(and(eq(post.id, hashtag.postId), followed))
+            )
+          : undefined
       )
     )
     .orderBy(desc(hashtag.createdAt))
@@ -650,7 +813,7 @@ app.get('/accounts', async (c) => {
       desc(account.createdAt)
     )
     .limit(limit);
-  return c.json({ items: rows.map(toAccountView), next: null } satisfies Page<AccountView>);
+  return c.json({ items: await accountViews(rows), next: null } satisfies Page<AccountView>);
 });
 
 // Before /accounts/:handle, which would take "suggested" for a username.
@@ -672,7 +835,7 @@ app.get('/accounts/suggested', async (c) => {
     )
     .orderBy(desc(account.followers), desc(account.createdAt))
     .limit(limitOf(c.req.query('limit')));
-  return c.json({ items: rows.map(toAccountView), next: null } satisfies Page<AccountView>);
+  return c.json({ items: await accountViews(rows), next: null } satisfies Page<AccountView>);
 });
 
 app.get('/accounts/:handle', async (c) => {
@@ -682,7 +845,7 @@ app.get('/accounts/:handle', async (c) => {
     return c.json({ error: 'Account not found' }, 404);
   }
   const profile: ProfileView = {
-    account: toAccountView(row),
+    account: (await accountViews([row]))[0]!,
     relationship:
       viewer && viewer !== row.address
         ? (await relationships(viewer, [row.address]))(row.address)
@@ -837,6 +1000,30 @@ app.get('/notifications/unread', async (c) => {
     .where(and(visibleNotifications(recipient), relativeTo(notification, 'after', since)))
     .limit(MAX_UNREAD);
   return c.json({ count: rows.length });
+});
+
+// Mirror mode: how far the mirror's import is, for the app's "history syncing" indicator.
+
+app.get('/mirror', async (c) => {
+  if (!MIRROR) {
+    return c.json({ error: 'This indexer reads no mirror' }, 404);
+  }
+  const [row] = await db.select().from(mirrorStatus).where(eq(mirrorStatus.id, 1)).limit(1);
+  const string = (value: bigint | null | undefined) => value?.toString() ?? null;
+  return c.json({
+    accounts: row?.accounts ?? 0,
+    accountReads: row?.accountReads ?? 0,
+    posts: row?.posts ?? 0,
+    lensChainPosts: string(row?.lensChainPosts),
+    follows: row?.follows ?? 0,
+    usernames: row?.usernames ?? 0,
+    blocks: row?.blocks ?? 0,
+    oldestPostAt: string(row?.oldestPostAt),
+    newestPostAt: string(row?.newestPostAt),
+    notifySince: string(row?.notifySince),
+    lastImportBlock: string(row?.lastImportBlock),
+    lastImportAt: string(row?.lastImportAt),
+  } satisfies MirrorStatusView);
 });
 
 // Media

@@ -21,6 +21,7 @@
     "format:check": "prettier --check .",
     "seed": "node --import tsx scripts/seed.ts",
     "seed:likes": "node --import tsx scripts/seed.ts --likes",
+    "mirror:chain": "bash scripts/mirror-chain.sh",
     "admin:reset-owner": "pnpm --filter @lens-monad/web admin:reset-owner",
     "instance:deploy-router": "node --env-file-if-exists=apps/web/.env.local --import tsx scripts/instance-deploy-router.ts",
     "doctor": "node --env-file-if-exists=apps/web/.env.local --import tsx scripts/doctor.ts",

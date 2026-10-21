@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { sponsorRouterAbi } from '@lens-monad/protocol';
 import { createPublicClient, http, formatEther, parseEther, type Address } from 'viem';
 import { getInstanceConfig, currentConfig } from './instance-config';
-import { CHAIN_ID } from '../config';
+import { CHAIN_ID, MIRROR } from '../config';
 import { runtimeContracts as contracts } from './contracts';
 import { publicClient } from './chain';
 import { database, migrationsApplied } from './db';
@@ -97,12 +97,13 @@ async function check(): Promise<Health> {
   const maxLag = numberEnv('INDEXER_MAX_LAG_BLOCKS', 50);
   const sql = database();
 
-  const config = await attempt('instance router', getSponsorshipConfig);
-  if (!config) problems.push('The instance router configuration is invalid');
+  // A mirror's client sends nothing: no router, relayers or gas budget to check.
+  const config = MIRROR ? null : await attempt('instance router', getSponsorshipConfig);
+  if (!config && !MIRROR) problems.push('The instance router configuration is invalid');
   const [chainId, head, relayerList, indexer, databaseStatus, used] = await Promise.all([
     attempt('chain id', () => publicClient.getChainId()),
     attempt('head', () => publicClient.getBlockNumber({ cacheTime: 0 })),
-    attempt('relayers', () => checkRelayers(minBalance)),
+    MIRROR ? [] : attempt('relayers', () => checkRelayers(minBalance)),
     attempt('indexer', indexerStatus),
     sql
       ? attempt('database', async () => {
@@ -149,7 +150,7 @@ async function check(): Promise<Health> {
   let budget: bigint | null = null;
   try {
     budget = gasBudgetPerHour();
-    for (const name of missingSponsorSettings()) {
+    for (const name of MIRROR ? [] : missingSponsorSettings()) {
       problems.push(`${name} isn't set, so sponsored actions are refused`);
     }
   } catch {
@@ -159,7 +160,7 @@ async function check(): Promise<Health> {
     ['SPONSOR_MAX_GAS_PER_TX', maxGasPerTransaction],
     ['SPONSOR_MAX_GAS_PER_SIGNUP', maxGasPerSignUp],
   ] as const;
-  for (const [name, read] of caps) {
+  for (const [name, read] of MIRROR ? [] : caps) {
     try {
       read();
     } catch {

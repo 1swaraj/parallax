@@ -1,6 +1,7 @@
 export * from './abis';
 export * from './calls';
 export * from './chains';
+export * from './content';
 export * from './deployments';
 export * from './media';
 export * from './metadata';

@@ -1,5 +1,6 @@
 'use client';
 
+import { MIRROR } from '@/lib/config';
 import { IndexerError, useThread } from '@/lib/indexer';
 import { useSession } from '@/lib/session';
 import { usePageTitle } from '@/lib/title';
@@ -43,7 +44,7 @@ export function ThreadPage({ id }: { id: string }) {
           ) : (
             <FocusPost post={data.post} lineAbove={data.ancestors.length > 0} />
           )}
-          {!data.post.deleted && (
+          {!data.post.deleted && !MIRROR && (
             <div className="border-b border-border-default">
               <Composer replyTo={data.post} variant="reply" />
             </div>

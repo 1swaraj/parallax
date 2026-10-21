@@ -5,7 +5,7 @@ import {
   readPostImage,
   readProfile,
 } from '@lens-monad/protocol';
-import { ponder, type Context } from 'ponder:registry';
+import { ponder as registry, type Context } from 'ponder:registry';
 import {
   account,
   block,
@@ -17,17 +17,18 @@ import {
   username,
 } from 'ponder:schema';
 import { hexToBytes, isAddressEqual, zeroAddress, type Address } from 'viem';
-import { hashtagsOf, mentionedUsernames } from './tokens';
+import { MIRROR } from './mode';
+import { addRecipient, notify, notifyPost, type NotificationType } from './notifications';
+import { hashtagsOf } from './tokens';
+
+// The launch deployment's events. In mirror mode, the config has the mirror's importers instead (mirror.ts).
+const ponder: Pick<typeof registry, 'on'> = MIRROR ? { on: () => {} } : registry;
 
 const { contracts } = getDeployment(Number(process.env.PONDER_CHAIN_ID ?? 31337));
 
 type CountedAccountField = 'followers' | 'following' | 'posts';
 type CountedPostField = 'replies' | 'reposts' | 'quotes';
 type PostRow = typeof post.$inferSelect;
-type NotificationRow = typeof notification.$inferInsert;
-type NotificationType = NotificationRow['type'];
-/** Where a notification happened: the event's block and log. */
-type Position = { blockNumber: bigint; logIndex: number; timestamp: bigint };
 
 function positionOf(event: {
   block: { number: bigint; timestamp: bigint };
@@ -68,47 +69,6 @@ async function bumpPost(
       .set((current) => ({ [field]: Math.max(0, current[field] + delta) }));
   }
   return row ?? undefined;
-}
-
-/** A log notifies each recipient at most once, so its position identifies the notification for that recipient. */
-async function notify(
-  context: Context,
-  position: Position,
-  actor: Address,
-  recipients: Map<Address, NotificationType>,
-  posts: (type: NotificationType) => Pick<NotificationRow, 'actorPostId' | 'postId'>
-) {
-  if (recipients.size === 0) {
-    return;
-  }
-  await context.db
-    .insert(notification)
-    .values(
-      [...recipients].map(([recipient, type]) => ({
-        recipient,
-        blockNumber: position.blockNumber,
-        logIndex: position.logIndex,
-        type,
-        mentions: type === 'reply' || type === 'mention',
-        actor,
-        ...posts(type),
-        createdAt: position.timestamp,
-      }))
-    )
-    .onConflictDoNothing();
-}
-
-/** Never notifies the actor, and keeps the first type given to a recipient. */
-function addRecipient(
-  recipients: Map<Address, NotificationType>,
-  actor: Address,
-  recipient: Address | undefined,
-  type: NotificationType
-) {
-  const key = recipient?.toLowerCase() as Address | undefined;
-  if (key && !isAddressEqual(key, actor) && !recipients.has(key)) {
-    recipients.set(key, type);
-  }
 }
 
 // Accounts
@@ -220,32 +180,6 @@ ponder.on('Namespace:Lens_Username_Unassigned', async ({ event, context }) => {
 });
 
 // Posts
-
-/**
- * Notifies the authors of the reposted, replied and quoted posts, then the accounts the content mentions: a recipient
- * gets one notification per post, a reply rather than a mention.
- */
-async function notifyPost(
-  context: Context,
-  position: Position,
-  created: Pick<PostRow, 'id' | 'author' | 'content' | 'repostedPostId'>,
-  references: { reposted?: PostRow; replied?: PostRow; quoted?: PostRow }
-) {
-  const recipients = new Map<Address, NotificationType>();
-  addRecipient(recipients, created.author, references.reposted?.author, 'repost');
-  addRecipient(recipients, created.author, references.replied?.author, 'reply');
-  addRecipient(recipients, created.author, references.quoted?.author, 'quote');
-  const holders = await Promise.all(
-    mentionedUsernames(created.content).map((name) => context.db.find(username, { username: name }))
-  );
-  for (const holder of holders) {
-    addRecipient(recipients, created.author, holder?.account, 'mention');
-  }
-  await notify(context, position, created.author, recipients, (type) => ({
-    actorPostId: created.id,
-    postId: type === 'repost' ? created.repostedPostId : created.id,
-  }));
-}
 
 ponder.on('Feed:Lens_Feed_PostCreated', async ({ event, context }) => {
   const { postId, author, rootPostId, postParams, source } = event.args;

@@ -1,7 +1,11 @@
 import type { PostImage } from '@lens-monad/protocol';
 import { index, onchainEnum, onchainTable, primaryKey } from 'ponder';
 
-/** Lens Accounts created by the AccountFactory, with their profile and username in the global Namespace. */
+/**
+ * Lens Accounts created by the AccountFactory, with their profile and username in the global Namespace. In mirror mode,
+ * the Accounts the mirror imported from Lens Chain (src/mirror.ts), and `createdAt` is when it first did: the importers
+ * don't carry an Account's creation time.
+ */
 export const account = onchainTable(
   'account',
   (t) => ({
@@ -18,6 +22,8 @@ export const account = onchainTable(
     following: t.integer().notNull(),
     posts: t.integer().notNull(),
     createdAt: t.bigint().notNull(),
+    /** Mirror mode: the Account's address on Lens Chain, which the mirror copied it from. */
+    lensChainAddress: t.hex(),
   }),
   (table) => ({
     ownerIndex: index().on(table.owner),
@@ -36,7 +42,12 @@ export const username = onchainTable('username', (t) => ({
   account: t.hex().notNull(),
 }));
 
-/** Posts of the global Feed. Monad timestamps are shared by several blocks, so posts are ordered by log position. */
+/**
+ * Posts of the global Feed. Monad timestamps are shared by several blocks, so posts are ordered by log position. In
+ * mirror mode, whose posts arrive in any order, the position is the post's creation time on Lens Chain and its
+ * sequential id in the Lens Chain feed instead: so are the positions of hashtags, follows and notifications, the time
+ * and a tiebreaker (src/mirror.ts).
+ */
 export const post = onchainTable(
   'post',
   (t) => ({
@@ -174,3 +185,58 @@ export const notification = onchainTable(
     mentionsIndex: index().on(table.recipient, table.mentions, table.blockNumber, table.logIndex),
   })
 );
+
+// Mirror mode (src/mirror.ts). The importers write records in any order: a follow, a post or a username can come before
+// the Account or the post it counts towards. Counts and usernames wait here until it arrives.
+
+/** Counts and the username of an Account the mirror hasn't imported yet, and its Lens Chain address once mapped. */
+export const mirrorPendingAccount = onchainTable('mirror_pending_account', (t) => ({
+  address: t.hex().primaryKey(),
+  followers: t.integer().notNull(),
+  following: t.integer().notNull(),
+  posts: t.integer().notNull(),
+  username: t.text(),
+  lensChainAddress: t.hex(),
+}));
+
+/**
+ * A notification for the author of a post the mirror hasn't imported yet: a new reply, quote or repost of it came
+ * first. Numbers are strings, as JSON has no bigints.
+ */
+export type PendingNotification = {
+  type: 'reply' | 'quote' | 'repost';
+  actor: `0x${string}`;
+  actorPostId: string;
+  blockNumber: string;
+  logIndex: number;
+  createdAt: string;
+};
+
+/** The replies, reposts and quotes of a post the mirror hasn't imported yet, and the notifications its author is due. */
+export const mirrorPendingPost = onchainTable('mirror_pending_post', (t) => ({
+  id: t.bigint().primaryKey(),
+  replies: t.integer().notNull(),
+  reposts: t.integer().notNull(),
+  quotes: t.integer().notNull(),
+  notifications: t.json().$type<PendingNotification[]>(),
+}));
+
+/** One row (id 1): how far the mirror's import is, for GET /mirror. */
+export const mirrorStatus = onchainTable('mirror_status', (t) => ({
+  id: t.integer().primaryKey(),
+  /** Records whose original time is before it are history, which never notifies: the first import's block time. */
+  notifySince: t.bigint().notNull(),
+  accounts: t.integer().notNull(),
+  /** Account imports whose state was read from the Account at their block, as their transaction didn't prove it. */
+  accountReads: t.integer().notNull(),
+  posts: t.integer().notNull(),
+  /** Lens Chain's post count, as the feed importer's counters carry it. */
+  lensChainPosts: t.bigint(),
+  follows: t.integer().notNull(),
+  usernames: t.integer().notNull(),
+  blocks: t.integer().notNull(),
+  oldestPostAt: t.bigint(),
+  newestPostAt: t.bigint(),
+  lastImportBlock: t.bigint().notNull(),
+  lastImportAt: t.bigint().notNull(),
+}));

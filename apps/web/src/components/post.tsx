@@ -5,6 +5,7 @@ import {
   deletePost,
   repost,
   type ImageView,
+  type MediaLinkView,
   type PostView,
 } from '@lens-monad/protocol';
 import { useMutation } from '@tanstack/react-query';
@@ -15,7 +16,7 @@ import { isAddressEqual } from 'viem';
 import { useLensActions } from '@/lib/actions';
 import { useSession } from '@/lib/session';
 import { useLike, useToggleLike } from '@/lib/likes';
-import { contracts } from '@/lib/config';
+import { contracts, MIRROR } from '@/lib/config';
 import {
   atHandle,
   Avatar,
@@ -115,6 +116,63 @@ export function PostImage({ image, compact = false }: { image: ImageView; compac
   );
 }
 
+const MEDIA_LABELS: Record<MediaLinkView['kind'], string> = {
+  image: 'Image',
+  video: 'Video',
+  audio: 'Audio',
+  file: 'File',
+  link: 'Link',
+  metadata: 'Post metadata',
+};
+
+/**
+ * What a post links to rather than shows (from Lens Chain: video, audio, files, links), or the post's metadata itself
+ * when the indexer couldn't read it. It opens where it's hosted. Inside a quoted post, which is a link, it's a label.
+ */
+export function MediaLink({ media, link = true }: { media: MediaLinkView; link?: boolean }) {
+  let host = media.url;
+  try {
+    host = new URL(media.url).hostname;
+  } catch {}
+  const body = (
+    <>
+      <Icon
+        name={
+          media.kind === 'video' || media.kind === 'audio'
+            ? 'play'
+            : media.kind === 'image'
+              ? 'image'
+              : 'link'
+        }
+        size={16}
+        className="shrink-0 text-text-accent"
+      />
+      <span className="font-medium text-text-primary">{MEDIA_LABELS[media.kind]}</span>
+      <span className="truncate text-text-tertiary">{host}</span>
+    </>
+  );
+  const frame =
+    'mt-3 flex w-fit max-w-full items-center gap-2 rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm';
+  return link ? (
+    <a
+      href={media.url}
+      target="_blank"
+      rel="noopener noreferrer nofollow ugc"
+      onClick={(event) => event.stopPropagation()}
+      className={`focus-ring ${frame} transition-colors duration-150 hover:border-border-strong`}
+    >
+      {body}
+    </a>
+  ) : (
+    <span className={frame}>{body}</span>
+  );
+}
+
+/** Content that isn't there to show: offchain, and not read (or unreadable). */
+function isOffchainOnly(post: PostView) {
+  return post.content === null && !post.image && (!post.media || post.media.kind === 'metadata');
+}
+
 /** The quoted post inside a post. Its text is plain because the card is itself a link; links can't nest. */
 export function QuotedPost({ post, link = true }: { post: PostView; link?: boolean }) {
   if (post.deleted) {
@@ -138,6 +196,9 @@ export function QuotedPost({ post, link = true }: { post: PostView; link?: boole
         </p>
       )}
       {post.image && <PostImage image={post.image} compact />}
+      {post.media && post.media.kind !== 'metadata' && (
+        <MediaLink media={post.media} link={false} />
+      )}
     </ContentWarning>
   );
   const frame = 'mt-3 block rounded-sm border border-border-default bg-bg-elevated px-3 py-3';
@@ -264,6 +325,57 @@ function PostActions({ post, large = false }: { post: PostView; large?: boolean 
   );
 }
 
+/** A count of the action bar, in mirror mode: what happened on Lens Chain, which can't be added to here. */
+function Count({ icon, label, count }: { icon: IconName; label: string; count: number }) {
+  return (
+    <span
+      aria-label={`${count} ${label}`}
+      title={label}
+      className="-my-1.5 -ml-2 flex items-center gap-1 py-1.5 pr-2 pl-2 text-text-tertiary"
+    >
+      <Icon name={icon} size={18} strokeWidth={1.5} />
+      <span className="min-w-[3ch] text-left font-mono text-xs tabular-nums">
+        {count > 0 ? compactNumber(count) : ''}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The action bar of a mirror's client, which writes nothing: replies, reposts and quotes as counts, and the link to
+ * copy. A thread's post shows its counts above, so it keeps the link only.
+ */
+function ReadOnlyActions({ post, large = false }: { post: PostView; large?: boolean }) {
+  const copyLink = useCopyLink();
+  return (
+    <div
+      className={`flex items-center justify-between ${large ? 'h-12 px-2' : 'h-8 max-w-[420px]'}`}
+    >
+      {!large && (
+        <>
+          <Count
+            icon="reply"
+            label={post.replies === 1 ? 'reply' : 'replies'}
+            count={post.replies}
+          />
+          <Count
+            icon="repost"
+            label={post.reposts === 1 ? 'repost' : 'reposts'}
+            count={post.reposts}
+          />
+          <Count icon="quote" label={post.quotes === 1 ? 'quote' : 'quotes'} count={post.quotes} />
+        </>
+      )}
+      <ActionButton
+        icon="share"
+        label="Copy link"
+        large={large}
+        onClick={() => copyLink(post.id)}
+      />
+    </div>
+  );
+}
+
 /** The "…" menu: delete your own post, block others, copy the link. */
 function PostMenu({ post, linkId }: { post: PostView; linkId: string }) {
   const { openReport, dialog } = useReport('post', post.id);
@@ -294,7 +406,7 @@ function PostMenu({ post, linkId }: { post: PostView; linkId: string }) {
             label: 'Delete post',
             icon: 'trash',
             danger: true,
-            hidden: !isOwn,
+            hidden: !isOwn || MIRROR,
             onSelect: () =>
               confirm({
                 title: 'Delete post?',
@@ -308,7 +420,7 @@ function PostMenu({ post, linkId }: { post: PostView; linkId: string }) {
             label: `Block ${atHandle(post.author)}`,
             icon: 'block',
             danger: true,
-            hidden: !account || isOwn,
+            hidden: !account || isOwn || MIRROR,
             onSelect: () =>
               confirm({
                 title: `Block ${atHandle(post.author)}?`,
@@ -450,20 +562,22 @@ export function PostCard({
             {shown.content !== null ? (
               <RichText
                 text={shown.content}
-                className="mt-1 text-base leading-6 text-text-primary"
+                // Lens Chain's posts run to 25,000 characters: the thread shows them whole.
+                className={`mt-1 text-base leading-6 text-text-primary ${MIRROR ? 'line-clamp-12' : ''}`}
               />
             ) : (
-              !shown.image && (
+              isOffchainOnly(shown) && (
                 <p className="mt-1 text-sm text-text-tertiary italic">
                   This post's content is stored offchain.
                 </p>
               )
             )}
             {shown.image && <PostImage image={shown.image} />}
+            {shown.media && <MediaLink media={shown.media} />}
             {shown.quoted && <QuotedPost post={shown.quoted} />}
           </ContentWarning>
           <div className="mt-3">
-            <PostActions post={shown} />
+            {MIRROR ? <ReadOnlyActions post={shown} /> : <PostActions post={shown} />}
           </div>
         </div>
       </div>
@@ -500,13 +614,14 @@ export function FocusPost({ post, lineAbove }: { post: PostView; lineAbove: bool
         {post.content !== null ? (
           <RichText text={post.content} className="mt-3 text-lg leading-7 text-text-primary" />
         ) : (
-          !post.image && (
+          isOffchainOnly(post) && (
             <p className="mt-3 text-text-tertiary italic">
               This post's content is stored offchain.
             </p>
           )
         )}
         {post.image && <PostImage image={post.image} />}
+        {post.media && <MediaLink media={post.media} />}
         {post.quoted && <QuotedPost post={post.quoted} />}
       </ContentWarning>
       <div className="py-4">
@@ -535,7 +650,7 @@ export function FocusPost({ post, lineAbove }: { post: PostView; lineAbove: bool
         </div>
       )}
       <div className="border-t border-border-default">
-        <PostActions post={post} large />
+        {MIRROR ? <ReadOnlyActions post={post} large /> : <PostActions post={post} large />}
       </div>
     </article>
   );

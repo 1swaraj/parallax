@@ -4,12 +4,13 @@ import type { AccountView, PostView, ProfileView } from '@lens-monad/protocol';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import type { Address } from 'viem';
+import { MIRROR } from './config';
 import { INDEXER_KEY, indexerGet } from './indexer';
 import { api } from './session';
 
 /*
  * Likes are Parallax's own, kept by its server (/api/likes): Lens V3 has no onchain likes. Other Lens apps don't
- * see them.
+ * see them. A mirror's client has none.
  */
 
 export type LikeState = { count: number; liked: boolean };
@@ -52,6 +53,7 @@ export function useLike(postId: string) {
     queryKey: [LIKES_KEY, postId],
     queryFn: () => loadLike(postId),
     staleTime: 30_000,
+    enabled: !MIRROR,
   });
 }
 
@@ -111,7 +113,7 @@ export function useMyLikedPosts(viewer: Address | null) {
     },
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next,
-    enabled: viewer !== null,
+    enabled: !MIRROR && viewer !== null,
   });
 }
 
@@ -175,7 +177,7 @@ export function useReceivedLikes(account: Address | null, since: string | null) 
       }
       return { groups, unread: received.unread };
     },
-    enabled: account !== null,
+    enabled: !MIRROR && account !== null,
     refetchInterval: 20_000,
     retry: false,
   });
@@ -191,7 +193,7 @@ export function useUnreadLikes(account: Address | null, since: string | null) {
           `/api/likes/received?limit=1${since ? `&since=${encodeURIComponent(since)}` : ''}`
         )
       ).unread,
-    enabled: account !== null,
+    enabled: !MIRROR && account !== null,
     refetchInterval: 20_000,
     retry: false,
   });

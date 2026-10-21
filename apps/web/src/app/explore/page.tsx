@@ -13,6 +13,7 @@ import {
   useSearchPosts,
   useSuggestedAccounts,
 } from '@/lib/indexer';
+import { MIRROR } from '@/lib/config';
 import { useSession } from '@/lib/session';
 import { usePageTitle } from '@/lib/title';
 import type { AccountView } from '@lens-monad/protocol';
@@ -91,11 +92,13 @@ function Explore() {
       </PageHeader>
       {!search ? (
         <People
-          title="Who to follow"
+          title={MIRROR ? 'Popular on Lens' : 'Who to follow'}
           query={suggested}
           empty={
             <EmptyState icon="user" title="No one here yet">
-              Accounts show up here as people join.
+              {MIRROR
+                ? 'Accounts show up here as the mirror imports them from Lens Chain.'
+                : 'Accounts show up here as people join.'}
             </EmptyState>
           }
         />
@@ -114,7 +117,9 @@ function Explore() {
           query={posts}
           empty={
             <EmptyState icon="search" title={`No results for "${search}"`}>
-              Try another word, or check the spelling.
+              {MIRROR
+                ? 'Search reads the posts whose text is onchain: most of Lens Chain\u2019s is offchain, so search people instead.'
+                : 'Try another word, or check the spelling.'}
             </EmptyState>
           }
         />

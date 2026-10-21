@@ -1,8 +1,8 @@
 // The tokens the app links in posts (RichText in apps/web/src/components/account.tsx), so that a notified mention or
-// an indexed hashtag is one the reader sees as a link: URLs come first, so an @ or # inside a URL is neither. Keep
-// both in sync.
+// an indexed hashtag is one the reader sees as a link: URLs come first, so an @ or # inside a URL is neither. Lens
+// apps write mentions with the namespace, @lens/name, which is the global namespace's name. Keep both in sync.
 const TOKEN =
-  /(https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]])|(@[a-z0-9][a-z0-9_-]{2,})|(#[\p{L}\d_]+)/gu;
+  /(https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]])|(@(?:lens\/)?[a-z0-9][a-z0-9_-]{2,})|(#[\p{L}\d_]+)/gu;
 
 /** Bounds the username lookups, and the notifications, a single post can cause. */
 export const MAX_MENTIONS = 20;
@@ -35,7 +35,7 @@ function distinctTokens(
 
 /** The distinct usernames a post mentions, at most MAX_MENTIONS. */
 export function mentionedUsernames(content: string | null): string[] {
-  return distinctTokens(content, 2, MAX_MENTIONS, (mention) => mention.slice(1));
+  return distinctTokens(content, 2, MAX_MENTIONS, (mention) => mention.replace(/^@(lens\/)?/, ''));
 }
 
 /** The distinct hashtags of a post, lowercase and without '#', at most MAX_HASHTAGS. */
