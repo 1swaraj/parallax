@@ -535,9 +535,20 @@ async function relationships(viewer: Address, targets: Address[]) {
   });
 }
 
-/** Mirror mode: posts by authors with followers enough for the public timeline and trends (TIMELINE_MIN_FOLLOWERS). */
-function followedAuthor(): Condition {
-  return TIMELINE_MIN_FOLLOWERS > 0
+/**
+ * Mirror mode: posts by authors with followers enough for the public timeline and trends (TIMELINE_MIN_FOLLOWERS), once
+ * the mirror has follows. Before, no one has followers, and every post would be left out.
+ */
+async function followedAuthor(): Promise<Condition> {
+  if (TIMELINE_MIN_FOLLOWERS === 0) {
+    return undefined;
+  }
+  const [status] = await db
+    .select({ follows: mirrorStatus.follows })
+    .from(mirrorStatus)
+    .where(eq(mirrorStatus.id, 1))
+    .limit(1);
+  return (status?.follows ?? 0) > 0
     ? inArray(
         post.author,
         db
@@ -558,7 +569,7 @@ app.get('/timeline', async (c) => {
       [
         isNull(post.repliedPostId),
         notBlockedBy(viewer),
-        followedAuthor(),
+        await followedAuthor(),
         relativeTo(post, 'before', cursor),
       ],
       limitOf(c.req.query('limit')),
@@ -728,6 +739,7 @@ app.get('/trends', async (c) => {
     throw badRequest(`hours is an integer from 1 to ${MAX_TREND_HOURS}`);
   }
   const since = BigInt(Math.floor(Date.now() / 1000) - hours * 3600);
+  const followed = await followedAuthor();
   const recent = db
     .select({ tag: hashtag.tag, blockNumber: hashtag.blockNumber, logIndex: hashtag.logIndex })
     .from(hashtag)
@@ -740,12 +752,12 @@ app.get('/trends', async (c) => {
             .from(post)
             .where(and(eq(post.id, hashtag.postId), eq(post.deleted, true)))
         ),
-        TIMELINE_MIN_FOLLOWERS > 0
+        followed
           ? exists(
               db
                 .select({ id: post.id })
                 .from(post)
-                .where(and(eq(post.id, hashtag.postId), followedAuthor()))
+                .where(and(eq(post.id, hashtag.postId), followed))
             )
           : undefined
       )
