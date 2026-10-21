@@ -18,7 +18,11 @@
  *   GET /notifications?account&type=all|mentions&cursor   Page<NotificationView>
  *   GET /notifications/unread?account&since                { count: number } notifications newer than the `since` cursor
  *   GET /media/:author/:id                                 the image's bytes, once all its chunks are in and match its id
+ *   GET /mirror                                            MirrorStatusView  mirror mode only: how far the import is
  *   GET /status                                            Ponder: { [chain]: { id, block: { number, timestamp } } }
+ *
+ * In mirror mode (README), the positions that order pages, cursors and notification ids are a record's original Lens
+ * Chain time and a tiebreaker, rather than a block and a log.
  */
 
 export type AccountView = {
@@ -34,6 +38,8 @@ export type AccountView = {
   following: number;
   posts: number;
   createdAt: string;
+  /** Mirror mode: the address on Lens Chain the account was copied from. */
+  lensChainAddress?: `0x${string}` | null;
 };
 
 /** How the viewer relates to an Account. */
@@ -56,6 +62,16 @@ export type ImageView = {
   height: number | null;
 };
 
+/**
+ * What a post links to rather than shows: its video, audio, file or link, or its metadata itself when the indexer
+ * couldn't read it. `url` is https, through a gateway for `lens://`, `ipfs://` and `ar://` content.
+ */
+export type MediaLinkView = {
+  kind: 'image' | 'video' | 'audio' | 'file' | 'link' | 'metadata';
+  url: string;
+  type: string | null;
+};
+
 export type PostView = {
   /** Added by an instance's server read layer, never by the shared indexer. */
   moderation?: { hidden: boolean; warning: string | null };
@@ -64,6 +80,8 @@ export type PostView = {
   content: string | null;
   /** Null for posts without an image, and for deleted posts. */
   image: ImageView | null;
+  /** From indexers that read offchain metadata (mirror mode): media the post links to. */
+  media?: MediaLinkView | null;
   contentUri: string;
   rootPostId: string;
   repliedPostId: string | null;
@@ -113,3 +131,25 @@ export type NotificationView = {
 export type TrendView = { tag: string; posts: number };
 
 export type SyncStatus = { block: string };
+
+/**
+ * A mirror of Lens Chain, as far as it's imported. Lens Chain's post count is the one its feed importer carries, so
+ * `posts` of `lensChainPosts` is how much of the history is in. Times are unix seconds.
+ */
+export type MirrorStatusView = {
+  accounts: number;
+  posts: number;
+  /** Null until the first post batch. */
+  lensChainPosts: string | null;
+  follows: number;
+  usernames: number;
+  blocks: number;
+  /** The oldest and newest original times of the posts imported so far: history fills in backwards from the newest. */
+  oldestPostAt: string | null;
+  newestPostAt: string | null;
+  /** Records from before it are history: the time of the first import. Later ones notify. */
+  notifySince: string | null;
+  /** The Monad block of the latest import, and its time. */
+  lastImportBlock: string | null;
+  lastImportAt: string | null;
+};

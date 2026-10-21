@@ -1,0 +1,4 @@
+{
+  "chainId": 10143,
+  "placeholder": "The read-only mirror of Lens Chain isn't deployed on Monad testnet yet. Once it is, replace this file with its address book: LENS_CONTRACTS_DIR=<the mirror's lens-monad-protocol checkout> pnpm sync:contracts --mirror (README, Mirror mode)."
+}
