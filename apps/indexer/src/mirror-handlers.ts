@@ -3,6 +3,7 @@ import {
   parseDataURI,
   readPostMetadata,
   readProfile,
+  type PostImage,
 } from '@lens-monad/protocol';
 import type { Context } from 'ponder:registry';
 import {
@@ -16,6 +17,7 @@ import {
   notification,
   post,
   username,
+  type PendingNotification,
 } from 'ponder:schema';
 import { encodePacked, isAddressEqual, keccak256, zeroAddress, type Address, type Hex } from 'viem';
 import {
@@ -36,12 +38,16 @@ import { hashtagsOf } from './tokens';
 // first, with Lens Chain's new activity streaming throughout. So:
 //
 // - rows are ordered by their original time on Lens Chain, never by Monad's (see the positions below);
-// - counts towards an Account or a post that isn't in yet wait in the pending tables, until it arrives;
+// - counts towards an Account or a post that isn't in yet wait in the pending tables, until it arrives, and so do the
+//   notifications its author is due;
 // - only records from after the mirror's start notify: history doesn't.
+//
+// Lens Chain's records are anyone's: their text never goes to Postgres with NUL characters, which it refuses.
 
 type Block = { number: bigint; timestamp: bigint };
 type ImportEvent<args> = { args: args; block: Block; log: { address: Address } };
 type PostRow = typeof post.$inferSelect;
+type PendingPostRow = typeof mirrorPendingPost.$inferSelect;
 type CountedAccountField = 'followers' | 'following' | 'posts';
 type CountedPostField = 'replies' | 'reposts' | 'quotes';
 
@@ -67,6 +73,20 @@ export function followPosition(follower: Address, followed: Address, createdAt: 
     logIndex: Number(BigInt(pair) % TIEBREAKS),
     timestamp: createdAt,
   };
+}
+
+/** A post waits for at most this many notifications of its author. */
+const MAX_PENDING_NOTIFICATIONS = 100;
+
+/** Text Postgres takes: without NUL characters. */
+function clean<T extends string | null>(text: T): T {
+  return (text === null ? null : text.replaceAll('\u0000', '')) as T;
+}
+
+function cleanImage(image: PostImage | null): PostImage | null {
+  return (
+    image && { ...image, item: clean(image.item), type: clean(image.type), alt: clean(image.alt) }
+  );
 }
 
 /** Addresses as Ponder stores them, so rows compare and key alike whatever the event's casing. */
@@ -233,10 +253,13 @@ export async function accountImported(
     address,
     functionName: 'readAccount',
   });
+  const profile = readProfile(state.metadataURI);
   const fields = {
     owner: lower(state.owner),
-    metadataUri: state.metadataURI,
-    ...readProfile(state.metadataURI),
+    metadataUri: clean(state.metadataURI),
+    name: clean(profile.name),
+    bio: clean(profile.bio),
+    picture: clean(profile.picture),
   };
   if (await context.db.find(account, { address })) {
     await context.db.update(account, { address }).set(fields);
@@ -272,7 +295,7 @@ export async function usernameImported(
   event: ImportEvent<{ username: { username: string; assignedAccount: Address } }>,
   context: Context
 ) {
-  const name = event.args.username.username;
+  const name = clean(event.args.username.username);
   const assigned = orNull(event.args.username.assignedAccount);
   const holder = await context.db.find(username, { username: name });
   let delta = 0;
@@ -343,6 +366,77 @@ async function removeHashtags(context: Context, row: PostRow) {
   }
 }
 
+const NOTIFICATION_RANKS: Record<NotificationType, number> = {
+  repost: 0,
+  reply: 1,
+  quote: 2,
+  mention: 3,
+  follow: 4,
+};
+
+/** New replies, quotes and reposts of posts that aren't in yet: their authors are notified when they arrive. */
+async function notifyLater(
+  context: Context,
+  created: PostRow,
+  position: Position,
+  references: Awaited<ReturnType<typeof countLivePost>>
+) {
+  const parents = [
+    [created.repostedPostId, references.reposted, 'repost'],
+    [created.repliedPostId, references.replied, 'reply'],
+    [created.quotedPostId, references.quoted, 'quote'],
+  ] as const;
+  for (const [id, parent, type] of parents) {
+    if (id === null || parent) {
+      continue;
+    }
+    const due: PendingNotification = {
+      type,
+      actor: created.author,
+      actorPostId: created.id.toString(),
+      blockNumber: position.blockNumber.toString(),
+      logIndex: position.logIndex,
+      createdAt: position.timestamp.toString(),
+    };
+    // countPost made the post's pending row.
+    await context.db.update(mirrorPendingPost, { id }).set((row) => ({
+      notifications: [...(row.notifications ?? []), due].slice(-MAX_PENDING_NOTIFICATIONS),
+    }));
+  }
+}
+
+/**
+ * The notifications a post's author was due while it wasn't in. Where the same post also mentioned them, the reply,
+ * quote or repost wins, as when the post is in first (notifyPost).
+ */
+async function notifyDue(context: Context, row: PostRow, pending: PendingPostRow) {
+  for (const due of pending.notifications ?? []) {
+    if (due.actor === row.author) {
+      continue;
+    }
+    const actorPostId = BigInt(due.actorPostId);
+    const outranks = {
+      type: due.type,
+      mentions: due.type === 'reply',
+      postId: due.type === 'repost' ? row.id : actorPostId,
+    };
+    await context.db
+      .insert(notification)
+      .values({
+        ...outranks,
+        recipient: row.author,
+        blockNumber: BigInt(due.blockNumber),
+        logIndex: due.logIndex,
+        actor: due.actor,
+        actorPostId,
+        createdAt: BigInt(due.createdAt),
+      })
+      .onConflictDoUpdate((existing) =>
+        NOTIFICATION_RANKS[due.type] < NOTIFICATION_RANKS[existing.type] ? outranks : {}
+      );
+  }
+}
+
 /**
  * A post's state. The first import adds it; later ones edit or delete it, as the importer never changes a post's
  * author, time or references. Only inline metadata is read here: the API reads offchain metadata when it serves posts.
@@ -353,7 +447,11 @@ export async function postImported(
 ) {
   const { postId: id, post: imported, creationSource } = event.args;
   const metadata = readPostMetadata(parseDataURI(imported.contentURI));
-  const content = { contentUri: imported.contentURI, content: metadata?.content ?? null };
+  const content = {
+    contentUri: clean(imported.contentURI),
+    content: clean(metadata?.content ?? null),
+  };
+  const image = cleanImage(metadata?.image ?? null);
   const editedAt =
     imported.lastUpdatedTimestamp > imported.creationTimestamp
       ? imported.lastUpdatedTimestamp
@@ -361,9 +459,9 @@ export async function postImported(
   const existing = await context.db.find(post, { id });
 
   if (existing) {
-    if (existing.contentUri !== imported.contentURI) {
+    if (existing.contentUri !== content.contentUri) {
       await removeHashtags(context, existing);
-      await context.db.update(post, { id }).set({ ...content, image: metadata?.image ?? null });
+      await context.db.update(post, { id }).set({ ...content, image });
       if (!existing.deleted && !imported.isDeleted) {
         await addHashtags(context, { ...existing, ...content });
       }
@@ -383,7 +481,7 @@ export async function postImported(
     id,
     author: lower(imported.author),
     ...content,
-    image: metadata?.image ?? null,
+    image,
     rootPostId: imported.rootPostId,
     repliedPostId: reference(imported.repliedPostId),
     quotedPostId: reference(imported.quotedPostId),
@@ -400,6 +498,7 @@ export async function postImported(
   };
   await context.db.insert(post).values(row);
   if (pending) {
+    await notifyDue(context, row, pending);
     await context.db.delete(mirrorPendingPost, { id });
   }
   if (!row.deleted) {
@@ -407,6 +506,7 @@ export async function postImported(
     await addHashtags(context, row);
     if (await isNew(context, event.block, row.createdAt)) {
       await notifyPost(context, position, row, references);
+      await notifyLater(context, row, position, references);
     }
   }
   await recordImport(context, event.block, (current) => ({

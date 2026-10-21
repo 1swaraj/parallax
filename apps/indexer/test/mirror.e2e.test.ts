@@ -47,6 +47,10 @@ describe('mirror mode, end to end', () => {
     expect(times).toEqual([...times].sort((a, b) => b - a));
     expect(items.every((post) => post.repliedPostId === null)).toBe(true);
     expect(items.map(content)).not.toContain('Claim free MON now at free-mon.example #airdrop');
+    // Nor does search, whose hashtags the app's trends recount.
+    for (const q of ['%23airdrop', 'Claim']) {
+      expect((await api<Page<PostView>>(`/search/posts?q=${q}`)).items).toEqual([]);
+    }
     // The repost and the reply arrived before their post: its counts are all there.
     const zine = items.find(
       (post) => !post.reposted && post.content?.startsWith('Working on a zine')

@@ -114,7 +114,7 @@ const reader =
 const METADATA_DEADLINE_MS = Number(process.env.METADATA_DEADLINE_MS ?? 2_500);
 
 /**
- * Mirror mode: the Everyone timeline and the trends leave out authors with fewer followers than this
+ * Mirror mode: the Everyone timeline, post search and the trends leave out authors with fewer followers than this
  * (MIRROR_TIMELINE_MIN_FOLLOWERS, 0 for none). Most of Lens Chain's recent posts come from spam farms of accounts no one
  * follows, many of them explicit.
  */
@@ -236,10 +236,13 @@ function toAccountView(row: AccountRow, profile?: Profile | null): AccountView {
 
 /** Account views, with the offchain profiles read by the deadline. */
 async function accountViews(rows: AccountRow[]): Promise<AccountView[]> {
+  if (!reader) {
+    return rows.map((row) => toAccountView(row));
+  }
   const deadline = deadlineIn(METADATA_DEADLINE_MS);
   const profiles = await Promise.all(
     rows.map((row) =>
-      reader && row.metadataUri && !row.metadataUri.startsWith('data:')
+      row.metadataUri && !row.metadataUri.startsWith('data:')
         ? by(reader.profile(row.metadataUri), deadline, null)
         : null
     )
@@ -536,8 +539,8 @@ async function relationships(viewer: Address, targets: Address[]) {
 }
 
 /**
- * Mirror mode: posts by authors with followers enough for the public timeline and trends (TIMELINE_MIN_FOLLOWERS), once
- * the mirror has follows. Before, no one has followers, and every post would be left out.
+ * Mirror mode: posts by authors with followers enough for the public timeline, search and trends (TIMELINE_MIN_FOLLOWERS),
+ * once the mirror has follows. Before, no one has followers, and every post would be left out.
  */
 async function followedAuthor(): Promise<Condition> {
   if (TIMELINE_MIN_FOLLOWERS === 0) {
@@ -688,15 +691,22 @@ app.get('/search/posts', async (c) => {
   if (!query) {
     return c.json({ items: [], next: null } satisfies Page<PostView>);
   }
+  // Mirror mode: search leaves out followerless authors too, like the trends it recounts in the app.
+  const followed = await followedAuthor();
   const tag = /^#([\p{L}\d_]+)$/u.exec(query)?.[1];
   if (tag) {
-    return c.json(await hashtagPage(tag.toLowerCase(), viewer, cursor, limit));
+    return c.json(await hashtagPage(tag.toLowerCase(), viewer, cursor, limit, followed));
   }
   // A substring, with LIKE's wildcards and escape character taken literally.
   const pattern = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
   return c.json(
     await postsPage(
-      [ilike(post.content, pattern), notBlockedBy(viewer), relativeTo(post, 'before', cursor)],
+      [
+        ilike(post.content, pattern),
+        notBlockedBy(viewer),
+        followed,
+        relativeTo(post, 'before', cursor),
+      ],
       limit,
       viewer
     )
@@ -708,7 +718,8 @@ async function hashtagPage(
   tag: string,
   viewer: Address | null,
   cursor: Position | null,
-  limit: number
+  limit: number,
+  followed: Condition
 ): Promise<Page<PostView>> {
   const rows = await db
     .select({ post })
@@ -719,6 +730,7 @@ async function hashtagPage(
         eq(hashtag.tag, tag),
         eq(post.deleted, false),
         notBlockedBy(viewer),
+        followed,
         relativeTo(hashtag, 'before', cursor)
       )
     )

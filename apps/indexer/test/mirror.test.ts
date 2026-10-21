@@ -394,6 +394,63 @@ describe('mirror posts', () => {
     ]);
   });
 
+  it('notifies the author of a post that arrives after its new replies, quotes and reposts', async () => {
+    const m = mirror();
+    for (const address of [ALICE, BOB, CAROL]) {
+      await m.importAccount(address, { owner: OWNER, metadataURI: '' });
+    }
+    await m.assign('alice', ALICE);
+    // New activity on an old post of Alice's, which the backfill hasn't reached.
+    await m.post(10n, {
+      author: BOB,
+      repliedPostId: 1n,
+      rootPostId: 1n,
+      creationTimestamp: START + 10n,
+      contentURI: text('late to this, @lens/alice'),
+    });
+    await m.post(11n, { author: CAROL, quotedPostId: 1n, creationTimestamp: START + 11n });
+    await m.post(12n, { author: CAROL, repostedPostId: 1n, creationTimestamp: START + 12n });
+    await m.post(13n, {
+      author: ALICE,
+      repliedPostId: 1n,
+      rootPostId: 1n,
+      creationTimestamp: START + 13n,
+    });
+    // Bob's reply mentions Alice: the mention is all the mirror can tell her yet.
+    expect(m.rows(notification).map(({ type }) => type)).toEqual(['mention']);
+
+    await m.post(1n, { author: ALICE, creationTimestamp: HISTORY, contentURI: text('old post') });
+    expect(
+      m
+        .rows(notification)
+        .map(({ recipient, type, actor, postId }) => ({ recipient, type, actor, postId }))
+    ).toEqual([
+      // The reply outranks the mention, as when the post is in first.
+      { recipient: ALICE, type: 'reply', actor: BOB, postId: 10n },
+      { recipient: ALICE, type: 'quote', actor: CAROL, postId: 11n },
+      { recipient: ALICE, type: 'repost', actor: CAROL, postId: 1n },
+    ]);
+    expect(await m.find(post, { id: 1n })).toMatchObject({ replies: 2, quotes: 1, reposts: 1 });
+    expect(m.rows(mirrorPendingPost)).toEqual([]);
+  });
+
+  it('keeps NUL characters out of what Postgres stores', async () => {
+    const m = mirror();
+    await m.importAccount(ALICE, {
+      owner: OWNER,
+      metadataURI: toDataURI(accountMetadata({ name: 'Al\u0000ice', bio: 'b\u0000io' })),
+    });
+    expect(await m.find(account, { address: ALICE })).toMatchObject({ name: 'Alice', bio: 'bio' });
+    const contentURI = `data:application/json,${encodeURIComponent(JSON.stringify({ lens: { content: 'g\u0000m #t\u0000ag' } }))}`;
+    await m.post(1n, { author: ALICE, creationTimestamp: HISTORY, contentURI });
+    const row = await m.find(post, { id: 1n });
+    expect(row?.content).toBe('gm #tag');
+    expect(row?.contentUri).toBe(contentURI);
+    expect(m.rows(hashtag).map(({ tag }) => tag)).toEqual(['tag']);
+    await m.assign('bad\u0000name', ALICE);
+    expect((await m.find(account, { address: ALICE }))?.username).toBe('badname');
+  });
+
   it('carries Lens Chain’s post count, and how far back the history goes', async () => {
     const m = mirror();
     await m.counters(21_400_000n);

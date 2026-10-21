@@ -136,6 +136,8 @@ describe('fetching public URLs', () => {
       'https://[::1]/post.json',
       'https://169.254.169.254/latest/meta-data',
       'https://localhost/post.json',
+      'https://api.localhost/post.json',
+      'https://metadata/post.json',
     ]) {
       await expect(
         fetchPublic(url, { timeoutMs: 1_000, maxBytes: 1_000 }),
@@ -181,6 +183,16 @@ describe('fetching public URLs', () => {
     await expect(fetchPublic(`https://metadata.example:${port}/missing`, local)).rejects.toThrow(
       'HTTP 404'
     );
+    // A name server that never answers takes no longer than the rest.
+    const resolving = Date.now();
+    await expect(
+      fetchPublic('https://stuck.example/post.json', {
+        ...local,
+        timeoutMs: 200,
+        resolve: () => new Promise(() => {}),
+      })
+    ).rejects.toThrow();
+    expect(Date.now() - resolving).toBeLessThan(1_500);
   });
 });
 

@@ -1,5 +1,5 @@
 import type { LookupAddress } from 'node:dns';
-import { lookup as dnsLookup } from 'node:dns/promises';
+import { Resolver } from 'node:dns/promises';
 import { Agent, request as httpsRequest } from 'node:https';
 import type { ClientRequest, IncomingMessage, RequestOptions } from 'node:http';
 import { BlockList, isIP, type LookupFunction } from 'node:net';
@@ -74,18 +74,52 @@ export type PublicFetchOptions = {
 
 const agent = new Agent({ keepAlive: true, maxSockets: 32, timeout: 10_000 });
 
+// DNS through c-ares rather than getaddrinfo, which runs on libuv's few threads: a name server that never answers
+// holds none of the threads the process needs, and the resolver gives up on its own.
+const resolver = new Resolver({ timeout: 2_000, tries: 2 });
+
+/** A name's IPv4 and IPv6 addresses. */
+async function resolveAll(hostname: string): Promise<LookupAddress[]> {
+  const [v4, v6] = await Promise.allSettled([
+    resolver.resolve4(hostname),
+    resolver.resolve6(hostname),
+  ]);
+  return [
+    ...(v4.status === 'fulfilled' ? v4.value.map((address) => ({ address, family: 4 })) : []),
+    ...(v6.status === 'fulfilled' ? v6.value.map((address) => ({ address, family: 6 })) : []),
+  ];
+}
+
+/** The promise's value, unless `signal` aborts first. */
+function unlessAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+}
+
 /** The address to connect to: every address the name has must be public, or none is used. */
 async function pinnedAddress(
   hostname: string,
-  {
-    resolve = (name) => dnsLookup(name, { all: true, verbatim: true }),
-    isAllowed = isPublicAddress,
-  }: PublicFetchOptions
+  { resolve = resolveAll, isAllowed = isPublicAddress }: PublicFetchOptions,
+  signal: AbortSignal
 ): Promise<LookupAddress> {
   const literal = hostname.replace(/^\[(.*)\]$/, '$1');
+  // Names without a dot resolve through search domains, and localhost isn't anyone's.
+  if (!isIP(literal) && (!literal.includes('.') || /(^|\.)localhost\.?$/i.test(literal))) {
+    throw new FetchRefused(`${hostname} isn't a public name`);
+  }
   const addresses = isIP(literal)
     ? [{ address: literal, family: isIP(literal) }]
-    : await resolve(hostname).catch(() => []);
+    : await unlessAborted(
+        resolve(hostname).catch(() => []),
+        signal
+      );
   if (addresses.length === 0 || !addresses.every((entry) => isAllowed(entry.address))) {
     throw new FetchRefused(`${hostname} doesn't resolve to public addresses only`);
   }
@@ -158,7 +192,7 @@ export async function fetchPublic(
     if (current.protocol !== 'https:' || current.username || current.password) {
       throw new FetchRefused(`Only plain https URLs are fetched: ${current.protocol}`);
     }
-    const pinned = await pinnedAddress(current.hostname, options);
+    const pinned = await pinnedAddress(current.hostname, options, signal);
     const response = await get(current, pinned, options, signal);
     const location = response.headers.location;
     if ([301, 302, 303, 307, 308].includes(response.statusCode ?? 0) && location) {

@@ -173,6 +173,32 @@ describe('filters and reads', () => {
       ).toBe(false);
     }
   );
+  it('applies link filters to the image and media a post links to, and redacts them', () => {
+    const state = emptyModeration();
+    state.filters.push({
+      id: '1',
+      kind: 'link',
+      pattern: 'spam.example',
+      action: 'hide',
+      reason: 'spam',
+    });
+    const media = postView('3', other, null as unknown as string);
+    media.media = { kind: 'link', url: 'https://www.spam.example/gallery', type: null };
+    expect(hiddenPost(media, state)).toBe(true);
+    expect(moderatePost(media, state).media).toBeNull();
+    const image = postView('4', other, 'look');
+    image.image = {
+      url: 'https://cdn.spam.example/1.jpg',
+      type: 'image/jpeg',
+      alt: null,
+      width: null,
+      height: null,
+    };
+    expect(hiddenPost(image, state)).toBe(true);
+    // The app's own images are paths, which no link filter reads.
+    image.image = { ...image.image, url: '/media/0xabc/0xdef' };
+    expect(hiddenPost(image, state)).toBe(false);
+  });
   it('returns content warnings for account, post and word labels', () => {
     const state = emptyModeration(),
       post = postView();

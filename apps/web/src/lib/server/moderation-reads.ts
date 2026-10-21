@@ -10,11 +10,21 @@ export function hiddenAccount(account: AccountView, state: ModerationSnapshot) {
   const wallet = account.owner ? state.accounts.get(account.owner.toLowerCase()) : undefined;
   return !!(status?.hidden || status?.suspended || wallet?.hidden || wallet?.suspended);
 }
+/**
+ * What filters read of a post: its text, then the links it shows without them in its text, its image's and its media's
+ * (mirror mode), so link filters catch those too.
+ */
+function filtered(post: PostView) {
+  const links = [post.image?.url, post.media?.url].filter(
+    (url) => url && /^https?:\/\//i.test(url)
+  );
+  return [post.content ?? '', ...links].join('\n');
+}
 export function hiddenPost(post: PostView, state: ModerationSnapshot): boolean {
   return (
     hiddenAccount(post.author, state) ||
     state.posts.get(post.id)?.action === 'hide' ||
-    contentDecision(state.filters, post.content ?? '').hidden ||
+    contentDecision(state.filters, filtered(post)).hidden ||
     (!!post.reposted && hiddenPost(post.reposted, state))
   );
 }
@@ -24,6 +34,7 @@ function placeholder(post: PostView): PostView {
     content: null,
     contentUri: '',
     image: null,
+    media: null,
     deleted: true,
     quoted: null,
     reposted: null,
@@ -42,7 +53,7 @@ export function moderatePost(post: PostView, state: ModerationSnapshot): PostVie
     specific?.action === 'label'
       ? specific.reason
       : (state.accounts.get(post.author.address.toLowerCase())?.label ??
-        contentDecision(state.filters, post.content ?? '').label);
+        contentDecision(state.filters, filtered(post)).label);
   return {
     ...post,
     moderation: { hidden: false, warning },

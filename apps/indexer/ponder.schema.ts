@@ -199,12 +199,26 @@ export const mirrorPendingAccount = onchainTable('mirror_pending_account', (t) =
   lensChainAddress: t.hex(),
 }));
 
-/** The replies, reposts and quotes of a post the mirror hasn't imported yet. */
+/**
+ * A notification for the author of a post the mirror hasn't imported yet: a new reply, quote or repost of it came
+ * first. Numbers are strings, as JSON has no bigints.
+ */
+export type PendingNotification = {
+  type: 'reply' | 'quote' | 'repost';
+  actor: `0x${string}`;
+  actorPostId: string;
+  blockNumber: string;
+  logIndex: number;
+  createdAt: string;
+};
+
+/** The replies, reposts and quotes of a post the mirror hasn't imported yet, and the notifications its author is due. */
 export const mirrorPendingPost = onchainTable('mirror_pending_post', (t) => ({
   id: t.bigint().primaryKey(),
   replies: t.integer().notNull(),
   reposts: t.integer().notNull(),
   quotes: t.integer().notNull(),
+  notifications: t.json().$type<PendingNotification[]>(),
 }));
 
 /** One row (id 1): how far the mirror's import is, for GET /mirror. */

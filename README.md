@@ -650,7 +650,10 @@ mirror's address book (`packages/protocol/deployments/mirror/<chainId>.json`, `g
 - **Counts** towards an Account or a post that isn't imported yet wait in the `mirror_pending_account` and
   `mirror_pending_post` tables, until it arrives. So does a username assigned to an Account that isn't in yet.
 - **Notifications.** Only records from after the mirror's start, the block time of its first import, notify: history
-  never does. Mentions are notified for posts whose text is onchain (`@name` or Lens' `@lens/name`).
+  never does. A new reply, quote or repost of a post that isn't imported yet notifies its author once it is. Mentions
+  are notified for posts whose text is onchain (`@name` or Lens' `@lens/name`). Notifications are ordered by their
+  Lens Chain time too, so one imported after a newer one was seen doesn't count as unread.
+- **Text.** Lens Chain's records are anyone's: NUL characters, which Postgres refuses, are taken out of their text.
 - **Accounts' state is read from the Account** at the import's block, one `eth_call` per Account import. Monad full
   nodes keep recent state only ([historical data](https://docs.monad.xyz/developer-essentials/historical-data)), so
   indexing imports older than the RPC's lookback needs an RPC with historical state: on testnet, the QuickNode and
@@ -669,16 +672,18 @@ documents while indexing would take weeks, and tie the index to those servers. R
 minute for failures, 20,000 entries and 32 MB), 16 at a time, 8s and 256 KB each, and a page waits 2.5s at most
 (`METADATA_DEADLINE_MS`): what isn't in by then shows as a link, and is cached for the next page. The fetcher refuses
 anything that isn't public (`src/api/public-fetch.ts`): https only, to public unicast addresses only, every address the
-name resolves to checked and the connection pinned to it, each redirect checked again, no credentials in URLs.
+name resolves to checked and the connection pinned to it, each redirect checked again, no credentials in URLs, no
+single-label or localhost names, and DNS through c-ares with its own timeout.
 Metadata of every Lens type and version shows its text (an article's title first), its image, and a link to its
 other media (video, audio, files, links); a post whose metadata can't be read links to it. Images and pictures load in
 browsers through the gateways. Search, hashtags and trends only cover posts whose text is onchain.
 
 **Spam.** Most of Lens Chain's recent posts come from spam farms, many of them explicit: in a sample of 40 recent
 posts, 26 authors had no followers on Lens Chain and posted only spam, while every other author had 50 to 8,000
-followers. The Everyone timeline and the trends leave out authors with fewer followers than
-`MIRROR_TIMELINE_MIN_FOLLOWERS` (1), once the mirror has imported follows. Profiles, threads, search and the Following
-timeline show everything: hide the rest with [Moderation](#moderation), e.g. a domain filter on the spam's links.
+followers. The Everyone timeline, post search and the trends leave out authors with fewer followers than
+`MIRROR_TIMELINE_MIN_FOLLOWERS` (1), once the mirror has imported follows. Profiles, threads and the Following timeline
+show everything: hide the rest with [Moderation](#moderation), e.g. a link filter on the spam's domains, which also
+reads the image and media links of posts.
 
 ### The app (`NEXT_PUBLIC_MIRROR=true`)
 
@@ -733,16 +738,16 @@ the app refuse to start in mirror mode on 10143 until it's replaced.
    settings: see `apps/web/.env.mirror.example`. Set `DATABASE_URL` and `INSTANCE_SECRET` to moderate it from `/admin`.
 4. **Check** `/api/health`, the banner's sync on Home, and sign in with a wallet that owns a mirrored Account.
 
-| Variable                        | Where   | What                                                                                                    |
-| ------------------------------- | ------- | ------------------------------------------------------------------------------------------------------- |
-| `PONDER_MIRROR`                 | Indexer | `true`: index the chain's mirror of Lens Chain instead of its launch deployment                         |
-| `MIRROR_TIMELINE_MIN_FOLLOWERS` | Indexer | Followers an author needs for the Everyone timeline and trends, once the mirror has follows (1; 0: all) |
-| `OFFCHAIN_METADATA`             | Indexer | Read offchain metadata when serving posts and Accounts: on in mirror mode, off otherwise                |
-| `METADATA_DEADLINE_MS`          | Indexer | How long a page waits for offchain metadata (2500)                                                      |
-| `GROVE_GATEWAY`                 | Indexer | Where `lens://` is read (`https://api.grove.storage/`)                                                  |
-| `IPFS_GATEWAY`                  | Indexer | Where `ipfs://` is read (`https://ipfs.io/ipfs/`)                                                       |
-| `ARWEAVE_GATEWAY`               | Indexer | Where `ar://` is read (`https://arweave.net/`)                                                          |
-| `NEXT_PUBLIC_MIRROR`            | App     | `true`: the read-only client of the mirror. Read at build time                                          |
+| Variable                        | Where   | What                                                                                                            |
+| ------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `PONDER_MIRROR`                 | Indexer | `true`: index the chain's mirror of Lens Chain instead of its launch deployment                                 |
+| `MIRROR_TIMELINE_MIN_FOLLOWERS` | Indexer | Followers an author needs for the Everyone timeline, search and trends, once the mirror has follows (1; 0: all) |
+| `OFFCHAIN_METADATA`             | Indexer | Read offchain metadata when serving posts and Accounts: on in mirror mode, off otherwise                        |
+| `METADATA_DEADLINE_MS`          | Indexer | How long a page waits for offchain metadata (2500)                                                              |
+| `GROVE_GATEWAY`                 | Indexer | Where `lens://` is read (`https://api.grove.storage/`)                                                          |
+| `IPFS_GATEWAY`                  | Indexer | Where `ipfs://` is read (`https://ipfs.io/ipfs/`)                                                               |
+| `ARWEAVE_GATEWAY`               | Indexer | Where `ar://` is read (`https://arweave.net/`)                                                                  |
+| `NEXT_PUBLIC_MIRROR`            | App     | `true`: the read-only client of the mirror. Read at build time                                                  |
 
 ## Relayers and sponsorship
 
