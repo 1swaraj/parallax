@@ -143,7 +143,13 @@ export function useLensActions() {
         await switchChain(config, { chainId: CHAIN_ID });
       }
       const hash = await sendTransaction(config, { to, data, chainId: CHAIN_ID });
-      const receipt = await waitForTransactionReceipt(config, { hash, chainId: CHAIN_ID });
+      // Monad's RPC only returns transactions that are in a block, so viem's check for a replaced one can't see it:
+      // its lookups only delay the receipt, retried with a growing backoff (the relayer's waitForReceipt says more).
+      const receipt = await waitForTransactionReceipt(config, {
+        hash,
+        chainId: CHAIN_ID,
+        checkReplacement: false,
+      });
       if (receipt.status !== 'success') {
         throw new Error('The transaction reverted');
       }
