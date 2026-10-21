@@ -9,6 +9,7 @@
     "codegen": "ponder codegen",
     "typecheck": "tsc --noEmit",
     "test:e2e": "pnpm --filter @lens-monad/protocol exec vitest run --root ../../apps/indexer --testTimeout 60000 test/api.e2e.test.ts",
+    "test:e2e:mirror": "pnpm --filter @lens-monad/protocol exec vitest run --root ../../apps/indexer --testTimeout 60000 test/mirror.e2e.test.ts",
     "test": "pnpm --filter @lens-monad/protocol exec vitest run --root ../../apps/indexer --exclude 'test/**/*.e2e.test.ts'"
   },
   "dependencies": {
