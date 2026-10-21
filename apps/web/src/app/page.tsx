@@ -6,6 +6,7 @@ import { Composer } from '@/components/composer';
 import { NewPostsPill, PostList } from '@/components/lists';
 import { useAuthModal } from '@/components/modals';
 import { Button, buttonClassName, EmptyState, PageHeader, Tabs } from '@/components/ui';
+import { MIRROR } from '@/lib/config';
 import { useBrand } from '@/lib/runtime-config';
 import { useFollowingTimeline, useLatestPostId, useTimeline } from '@/lib/indexer';
 import { useSession } from '@/lib/session';
@@ -47,7 +48,7 @@ export default function HomePage() {
           void query.refetch();
         }}
       />
-      {owner && !account && (
+      {owner && !account && !MIRROR && (
         <div className="flex items-center justify-between gap-4 border-b border-border-default bg-bg-elevated px-4 py-4">
           <div>
             <p className="text-sm font-semibold text-text-primary">Pick your username</p>
@@ -60,9 +61,11 @@ export default function HomePage() {
           </Button>
         </div>
       )}
-      <div className="max-sm:hidden">
-        <Composer />
-      </div>
+      {!MIRROR && (
+        <div className="max-sm:hidden">
+          <Composer />
+        </div>
+      )}
       <PostList
         query={query}
         empty={
@@ -77,6 +80,10 @@ export default function HomePage() {
               }
             >
               Posts from the people you follow show up here.
+            </EmptyState>
+          ) : MIRROR ? (
+            <EmptyState icon="feather" title="No posts mirrored yet">
+              Lens Chain&apos;s posts show up here as the mirror imports them.
             </EmptyState>
           ) : (
             <EmptyState icon="feather" title="No posts yet">

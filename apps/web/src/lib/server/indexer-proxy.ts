@@ -89,7 +89,7 @@ export async function proxyIndexer(
     if (media)
       return proxyMedia(request, config.indexerUrl.replace(/\/+$/, ''), path, media[1]!, send);
     if (
-      !/^(status|timeline(?:\/following)?|posts(?:\/[0-9]{1,78})?|search\/posts|trends|accounts(?:\/[^/]+(?:\/(?:posts|followers|following))?)?|relationships|notifications(?:\/unread)?)$/.test(
+      !/^(status|mirror|timeline(?:\/following)?|posts(?:\/[0-9]{1,78})?|search\/posts|trends|accounts(?:\/[^/]+(?:\/(?:posts|followers|following))?)?|relationships|notifications(?:\/unread)?)$/.test(
         route
       )
     )
@@ -205,7 +205,7 @@ export async function proxyIndexer(
           .slice(0, limit),
       });
     }
-    if (route === 'status') return respond(await read(path, params));
+    if (route === 'status' || route === 'mirror') return respond(await read(path, params));
     if (route === 'relationships') {
       const result = await read(path, params);
       for (const address of Object.keys(result))

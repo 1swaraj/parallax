@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useConnection } from 'wagmi';
+import { MIRROR } from '@/lib/config';
 import { useBrand } from '@/lib/runtime-config';
 import {
   useLastSeenNotification,
@@ -21,6 +22,7 @@ import { FooterLinks } from './footer-links';
 import { Landing } from './landing';
 import { Logo, Wordmark } from './brand';
 import { Icon, type IconName } from './icons';
+import { MirrorBanner } from './mirror';
 import { useAuthModal, useCompose } from './modals';
 import { Button } from './ui';
 
@@ -133,7 +135,14 @@ function Sidebar() {
           })}
         </nav>
         <div className="mt-4 px-1 max-xl:px-0">
-          {account ? (
+          {MIRROR ? (
+            !account &&
+            !owner && (
+              <Button variant="primary" className="max-xl:hidden" onClick={openAuth}>
+                Sign in
+              </Button>
+            )
+          ) : account ? (
             <>
               <Button variant="primary" className="max-xl:hidden" onClick={() => compose()}>
                 <Icon name="feather" size={16} />
@@ -202,7 +211,7 @@ function MobileNav() {
   const compose = useCompose();
   return (
     <>
-      {account && (
+      {account && !MIRROR && (
         <Button
           variant="primary"
           size="icon"
@@ -300,7 +309,7 @@ function WhoToFollow() {
       aria-labelledby="who-to-follow"
     >
       <h2 id="who-to-follow" className="px-4 pt-4 pb-2 text-xl leading-7">
-        Who to follow
+        {MIRROR ? 'Popular on Lens' : 'Who to follow'}
       </h2>
       {items.map((item) => (
         <AccountRow
@@ -356,6 +365,18 @@ function Trends() {
 function JoinCard() {
   const { APP_NAME } = useBrand();
   const openAuth = useAuthModal();
+  if (MIRROR) {
+    return (
+      <section className="flex flex-col items-start gap-3 border border-border-default bg-bg-elevated p-4">
+        <h2 className="text-xl leading-7">Your Lens accounts</h2>
+        <p className="text-sm text-text-secondary">
+          Sign in with the wallet that owns your Lens account to see the posts of the people you
+          follow. Posting stays on Lens Chain.
+        </p>
+        <Button onClick={openAuth}>Sign in with your wallet</Button>
+      </section>
+    );
+  }
   return (
     <section className="flex flex-col items-start gap-3 border border-border-default bg-bg-elevated p-4">
       <h2 className="text-xl leading-7">New to {APP_NAME}</h2>
@@ -370,13 +391,15 @@ function JoinCard() {
 
 function Aside() {
   const pathname = usePathname();
-  const { account } = useSession();
+  const { account, owner } = useSession();
+  // Anyone reads a mirror's client: it has what signed-in readers have, but the account.
+  const reader = !!account || MIRROR;
   return (
     <aside className="sticky top-0 hidden h-dvh w-[340px] shrink-0 flex-col gap-4 overflow-y-auto py-2 lg:flex">
-      {account && pathname !== '/explore' && <SearchBox />}
-      {!account && <JoinCard />}
-      {account && <Trends />}
-      {account && pathname !== '/explore' && <WhoToFollow />}
+      {reader && pathname !== '/explore' && <SearchBox />}
+      {!account && !(MIRROR && owner) && <JoinCard />}
+      {reader && <Trends />}
+      {reader && pathname !== '/explore' && <WhoToFollow />}
       <footer className="px-1 pb-6">
         <FooterLinks />
       </footer>
@@ -392,7 +415,7 @@ function JoinBar() {
   const openAuth = useAuthModal();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-  if (!mounted || isLoading || account || isConnected || owner) {
+  if (MIRROR || !mounted || isLoading || account || isConnected || owner) {
     return null;
   }
   return (
@@ -442,7 +465,8 @@ function useComposeShortcut() {
         !event.metaKey &&
         !event.ctrlKey &&
         !event.altKey &&
-        account
+        account &&
+        !MIRROR
       ) {
         event.preventDefault();
         compose();
@@ -476,7 +500,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
         {children}
       </main>
     );
-  if (!account && !isPublicPath(pathname)) {
+  // A mirror's client is for reading: everyone can, signed in or not.
+  if (!MIRROR && !account && !isPublicPath(pathname)) {
     return !mounted || isLoading ? (
       <div className="grid min-h-dvh place-items-center" role="status" aria-label="Loading">
         <Logo size={48} />
@@ -502,6 +527,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           className="min-h-dvh w-full max-w-[600px] min-w-0 bg-bg-default pb-36 outline-none sm:border-x sm:border-border-default sm:pb-24 lg:pb-0"
         >
           <MobileHeader />
+          <MirrorBanner />
           {children}
         </main>
         <Aside />

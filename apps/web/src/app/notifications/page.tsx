@@ -16,6 +16,7 @@ import {
   PageHeader,
   Tabs,
 } from '@/components/ui';
+import { MIRROR } from '@/lib/config';
 import { markNotificationsSeen, useNotifications } from '@/lib/indexer';
 import { markLikesSeen, useLikesSeen, useReceivedLikes, type LikeNotification } from '@/lib/likes';
 import { useSession } from '@/lib/session';
@@ -178,7 +179,9 @@ export default function NotificationsPage() {
             </Button>
           }
         >
-          Follows, likes, replies, reposts, quotes and mentions show up here.
+          {MIRROR
+            ? 'Follows, replies, reposts, quotes and mentions on Lens show up here.'
+            : 'Follows, likes, replies, reposts, quotes and mentions show up here.'}
         </EmptyState>
       ) : query.isPending ? (
         <FeedSkeleton />
@@ -186,9 +189,11 @@ export default function NotificationsPage() {
         <ErrorState error={query.error} onRetry={() => query.refetch()} />
       ) : items.length === 0 ? (
         <EmptyState icon="bell" title={tab === 'all' ? 'Nothing to see yet' : 'No mentions yet'}>
-          {tab === 'all'
-            ? 'When someone follows you, likes, replies to, reposts or quotes your posts, you see it here.'
-            : 'When someone mentions you or replies to you, you see it here.'}
+          {MIRROR
+            ? 'When someone follows you, replies to, reposts, quotes or mentions you on Lens from now on, you see it here. The mirror\u2019s history doesn\u2019t notify.'
+            : tab === 'all'
+              ? 'When someone follows you, likes, replies to, reposts or quotes your posts, you see it here.'
+              : 'When someone mentions you or replies to you, you see it here.'}
         </EmptyState>
       ) : (
         <div>

@@ -229,8 +229,10 @@ export function joinedLabel(seconds: string) {
   return `Joined ${date.toLocaleDateString('en', { month: 'long', year: 'numeric' })}`;
 }
 
+// The indexer notifies and indexes the same tokens (apps/indexer/src/tokens.ts). Lens apps write mentions with the
+// namespace, @lens/name.
 const TOKEN =
-  /(https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]])|(@[a-z0-9][a-z0-9_-]{2,})|(#[\p{L}\d_]+)/gu;
+  /(https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]])|(@(?:lens\/)?[a-z0-9][a-z0-9_-]{2,})|(#[\p{L}\d_]+)/gu;
 
 const LINK =
   'text-text-accent underline decoration-text-accent/30 underline-offset-2 hover:decoration-text-accent';
@@ -260,7 +262,12 @@ export function RichText({ text, className = '' }: { text: string; className?: s
       );
     } else if (mention) {
       parts.push(
-        <Link key={index} href={`/u/${mention.slice(1)}`} className={LINK} onClick={stop}>
+        <Link
+          key={index}
+          href={`/u/${mention.replace(/^@(lens\/)?/, '')}`}
+          className={LINK}
+          onClick={stop}
+        >
           {token}
         </Link>
       );

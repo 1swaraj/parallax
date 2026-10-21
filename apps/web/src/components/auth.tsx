@@ -3,14 +3,15 @@
 import { usernameError } from '@lens-monad/protocol';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
+import { isAddressEqual } from 'viem';
 import { useConnect, useConnection, useConnectors, useDisconnect } from 'wagmi';
 import { useGasMode, useLensActions, useSponsorship } from '@/lib/actions';
 import { useBrand } from '@/lib/runtime-config';
-import { MAX_BIO_CHARACTERS, MAX_NAME_CHARACTERS } from '@/lib/config';
-import { useProfile } from '@/lib/indexer';
+import { MAX_BIO_CHARACTERS, MAX_NAME_CHARACTERS, MIRROR } from '@/lib/config';
+import { useOwnedAccounts, useProfile } from '@/lib/indexer';
 import { NEW_PASSKEY, PASSKEY } from '@/lib/passkey';
 import { useSession } from '@/lib/session';
-import { atHandle, Avatar, displayName } from './account';
+import { atHandle, Avatar, displayName, shortAddress } from './account';
 import { Icon, type IconName } from './icons';
 import { useToast } from './toast';
 import { Button, Dropdown, Spinner } from './ui';
@@ -227,7 +228,8 @@ export function CreateAccountForm({ onCreated }: { onCreated?: () => void }) {
   );
 }
 
-const STEPS = ['Connect', 'Sign in', 'Create account'];
+// A mirror's client creates no accounts: signing in shows the ones the wallet has.
+const STEPS = MIRROR ? ['Connect', 'Sign in'] : ['Connect', 'Sign in', 'Create account'];
 
 /** Steps indicator: where the user is in the sign-in flow, and what remains. */
 function StepsIndicator({ current }: { current: number }) {
@@ -323,8 +325,9 @@ export function SignInOptions({ onConnected }: { onConnected?: () => void }) {
   const available = useSponsorship();
   const toast = useToast();
   const [showWallets, setShowWallets] = useState(false);
-  const create = connectors.find((connector) => connector.id === NEW_PASSKEY);
-  const passkey = connectors.find((connector) => connector.id === PASSKEY);
+  // Passkeys make new wallets, which own no Lens Chain account: a mirror's client offers wallets only.
+  const create = MIRROR ? undefined : connectors.find((connector) => connector.id === NEW_PASSKEY);
+  const passkey = MIRROR ? undefined : connectors.find((connector) => connector.id === PASSKEY);
   const wallets = connectors.filter((connector) => connector.type !== PASSKEY);
 
   const button = (
@@ -381,7 +384,7 @@ export function SignInOptions({ onConnected }: { onConnected?: () => void }) {
           )
         )
       )}
-      {available !== false && (
+      {available !== false && !MIRROR && (
         <p className="mt-2 text-xs text-text-tertiary">
           Joining and posting are free: {APP_NAME} pays the network fees.
         </p>
@@ -421,8 +424,12 @@ export function AuthFlow({ onDone }: { onDone: () => void }) {
       {!isConnected ? (
         <>
           <StepTitle
-            title={`Join ${APP_NAME}`}
-            subtitle="Your username and followers work in any Lens app."
+            title={MIRROR ? 'Sign in with your wallet' : `Join ${APP_NAME}`}
+            subtitle={
+              MIRROR
+                ? 'See the Lens accounts your wallet owns, and the posts of the people they follow. Signing in is optional.'
+                : 'Your username and followers work in any Lens app.'
+            }
           />
           <SignInOptions />
         </>
@@ -448,17 +455,34 @@ export function AuthFlow({ onDone }: { onDone: () => void }) {
           </div>
         </>
       ) : owner && !account ? (
-        <>
-          <StepTitle
-            title="Create your account"
-            subtitle="Pick the username people will find you by. It's yours: it works in any Lens app, and no app can take it away."
-          />
-          <CreateAccountForm onCreated={onDone} />
-        </>
+        MIRROR ? (
+          <NoMirroredAccount owner={owner} />
+        ) : (
+          <>
+            <StepTitle
+              title="Create your account"
+              subtitle="Pick the username people will find you by. It's yours: it works in any Lens app, and no app can take it away."
+            />
+            <CreateAccountForm onCreated={onDone} />
+          </>
+        )
       ) : (
         <Spinner />
       )}
     </div>
+  );
+}
+
+/** A mirror's client, signed in with a wallet that owns no Lens account it has copied. */
+function NoMirroredAccount({ owner }: { owner: `0x${string}` }) {
+  return (
+    <>
+      <StepTitle
+        title="No Lens account here yet"
+        subtitle={`The mirror has no Lens account owned by ${shortAddress(owner)}. It copies accounts from Lens Chain first, then their posts: if yours is there, check again soon. To create one, use a Lens app.`}
+      />
+      <SignOutButton />
+    </>
   );
 }
 
@@ -502,11 +526,13 @@ export function SignOutButton() {
   );
 }
 
-/** The account chip at the bottom of the sidebar, with Sign out. */
+/** The account chip at the bottom of the sidebar: the wallet's other accounts, and Sign out. */
 export function AccountMenu() {
-  const { account, signOut } = useSession();
+  const { account, owner, signOut, selectAccount } = useSession();
   const { data } = useProfile(account, null);
+  const { data: owned } = useOwnedAccounts(owner);
   const { mutate: disconnect } = useDisconnect();
+  const toast = useToast();
   if (!data) {
     return null;
   }
@@ -516,6 +542,16 @@ export function AccountMenu() {
       align="left"
       direction="up"
       items={[
+        ...(owned ?? [])
+          .filter((other) => !isAddressEqual(other.address, me.address))
+          .map((other) => ({
+            label: `Switch to ${atHandle(other)}`,
+            icon: 'user' as const,
+            onSelect: () =>
+              selectAccount.mutate(other.address, {
+                onError: (error) => toast.error(error.message),
+              }),
+          })),
         {
           label: `Sign out ${atHandle(me)}`,
           icon: 'logout',

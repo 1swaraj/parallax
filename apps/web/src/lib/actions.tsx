@@ -32,7 +32,7 @@ import {
   switchChain,
   waitForTransactionReceipt,
 } from 'wagmi/actions';
-import { CHAIN_ID, contracts as defaultContracts, mediaStore } from './config';
+import { CHAIN_ID, contracts as defaultContracts, mediaStore, MIRROR } from './config';
 import { useNetwork } from './runtime-config';
 import { useProfile, waitForIndexer } from './indexer';
 import { api, useSession } from './session';
@@ -76,7 +76,8 @@ const SPONSORSHIP_QUERY = {
  * loading: actions wait for it, and the UI assumes it does.
  */
 export function useSponsorship() {
-  return useQuery(SPONSORSHIP_QUERY).data;
+  // A mirror's client sends nothing to pay for.
+  return useQuery({ ...SPONSORSHIP_QUERY, enabled: !MIRROR }).data;
 }
 
 /** Whether the app pays network fees right now, asking the server if it hasn't yet. */
@@ -118,7 +119,7 @@ export function useLensActions() {
     abi: accountAbi,
     functionName: 'canExecuteTransactions',
     args: [contracts.SponsorRouter],
-    query: { enabled: !!account, staleTime: 5_000, refetchInterval: 15_000 },
+    query: { enabled: !!account && !MIRROR, staleTime: 5_000, refetchInterval: 15_000 },
   });
   const sponsorshipAllowed =
     permission.data ??

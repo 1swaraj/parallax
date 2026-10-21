@@ -2,6 +2,7 @@
 
 import type {
   AccountView,
+  MirrorStatusView,
   NotificationView,
   Page,
   PostView,
@@ -141,6 +142,27 @@ export function useAccountSearch(search: string) {
     queryKey: [INDEXER_KEY, 'accounts', search],
     queryFn: () => indexerGet<Page<AccountView>>(`/accounts${query({ q: search, limit: 30 })}`),
     enabled: search.length > 0,
+  });
+}
+
+/** The Accounts a wallet owns, as the indexer last saw them. */
+export function useOwnedAccounts(owner: Address | null) {
+  return useQuery({
+    queryKey: [INDEXER_KEY, 'owned', owner?.toLowerCase()],
+    queryFn: async () =>
+      (await indexerGet<Page<AccountView>>(`/accounts${query({ owner, limit: 20 })}`)).items,
+    enabled: owner !== null,
+  });
+}
+
+/** Mirror mode: how far the import of Lens Chain is. An indexer without /mirror just means no indicator. */
+export function useMirrorStatus(enabled: boolean) {
+  return useQuery({
+    queryKey: [INDEXER_KEY, 'mirror'],
+    queryFn: () => indexerGet<MirrorStatusView>('/mirror'),
+    enabled,
+    retry: false,
+    refetchInterval: 60_000,
   });
 }
 
