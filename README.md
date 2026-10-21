@@ -721,8 +721,8 @@ the app refuse to start in mirror mode on 10143 until it's replaced.
 
 1. **Address book.** Once the mirror is deployed (`MIGRATION.md`, with `MIGRATION_MODE=true`, and no release), sync
    its book from the checkout that deployed it: `LENS_CONTRACTS_DIR=… pnpm sync:contracts --mirror`. It copies the
-   migration-mode books only, to `packages/protocol/deployments/mirror`, and regenerates `address-books.ts`; commit
-   both. With only the JSON at hand, put it there and run `pnpm sync:contracts --address-books`.
+   importers' ABIs and the migration-mode books only, to `packages/protocol/deployments/mirror`, and regenerates
+   `address-books.ts`; commit them. A plain `pnpm sync:contracts` leaves both alone. With only the JSON at hand, put it there and run `pnpm sync:contracts --address-books`.
 2. **Indexer**, a Railway service of its own with its own Postgres, set up as in
    [Full mode](#full-mode-own-indexer-on-railway), with `PONDER_MIRROR=true`, `PONDER_CHAIN_ID=10143`, an archive
    `PONDER_RPC_URL` (above) and its `PONDER_GET_LOGS_RANGE`. See `apps/indexer/.env.mirror.example`. Give it a public
