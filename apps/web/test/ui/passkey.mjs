@@ -2,6 +2,8 @@
 // password manager: create a passkey and an account, post for free, reload without a passkey prompt, pay for a post
 // from the passkey's own wallet (one prompt for the page), then sign out and sign in again with the same passkey.
 //
+// Passkeys are off unless the app is built with NEXT_PUBLIC_PASSKEYS=true.
+//
 //   APP_URL=http://localhost:3000 RPC_URL=http://127.0.0.1:8545 SHOTS_DIR=./shots node test/ui/passkey.mjs
 
 import { APP, open, post, RPC_URL } from './harness.mjs';

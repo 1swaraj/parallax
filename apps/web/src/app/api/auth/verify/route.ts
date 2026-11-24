@@ -51,6 +51,9 @@ export async function POST(request: Request) {
     await assertAccess(fields.address, accounts[0]);
     session.owner = fields.address;
     session.account = accounts[0];
+    // A wallet sign-in replaces a Community Passport one.
+    session.via = undefined;
+    session.holder = undefined;
     await session.save();
     return NextResponse.json({ owner: session.owner, account: session.account ?? null, accounts });
   });

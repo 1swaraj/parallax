@@ -2,13 +2,21 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { database } from '@/lib/server/db';
 import { assertSameOrigin, handle, HttpError } from '@/lib/server/guard';
+import { signedInMember } from '@/lib/server/member';
 import { getSession } from '@/lib/server/session';
 import { subscribeEmail, emailAvailable } from '@/lib/server/notifications-email';
 import { rateLimit } from '@/lib/server/state';
 import { clientIpKey } from '@/lib/server/requests';
 export const dynamic = 'force-dynamic';
+/**
+ * Digests find a subscriber's accounts by their owner: the wallet that signed in, or a Passport member's holder while
+ * this community's grant on their Account is live (signedInMember).
+ */
 async function emailOwner() {
   const session = await getSession();
+  if (session.via === 'passport') {
+    return (await signedInMember(session, 'Sign in first')).owner.toLowerCase();
+  }
   if (!session.owner) throw new HttpError(401, 'Sign in first');
   return session.owner.toLowerCase();
 }

@@ -5,10 +5,27 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { WagmiProvider } from 'wagmi';
 import { ModalsProvider } from '@/components/modals';
 import { setDefaultTheme } from '@/components/theme';
-import { ToastProvider } from '@/components/toast';
+import { ToastProvider, useToast } from '@/components/toast';
 import { createWagmiConfig } from '@/lib/wagmi';
 import { RuntimeConfigContext } from '@/lib/runtime-config';
 import type { PublicConfig } from '@/lib/instance-schema';
+
+/**
+ * Community Passport's sign-in comes back to a page with `?signin_error=` when it didn't complete (the callback is a
+ * navigation, not a fetch). Says why, once, and takes it out of the address bar.
+ */
+function SignInError() {
+  const toast = useToast();
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const message = url.searchParams.get('signin_error');
+    if (!message) return;
+    toast.error(message.slice(0, 200));
+    url.searchParams.delete('signin_error');
+    window.history.replaceState(window.history.state, '', url);
+  }, [toast]);
+  return null;
+}
 
 function RuntimeProviders({ children, config }: { children: ReactNode; config: PublicConfig }) {
   const { data: runtime } = useQuery({
@@ -38,6 +55,7 @@ function RuntimeProviders({ children, config }: { children: ReactNode; config: P
     <RuntimeConfigContext.Provider value={runtime}>
       <WagmiProvider config={wagmiConfig}>
         <ToastProvider>
+          <SignInError />
           <ModalsProvider>{children}</ModalsProvider>
         </ToastProvider>
       </WagmiProvider>

@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { isOwnedBy } from '@/lib/server/chain';
 import { numberEnv } from '@/lib/server/env';
 import { assertSameOrigin, handle, HttpError } from '@/lib/server/guard';
 import { likeablePostAuthor, parsePostId } from '@/lib/server/posts';
 import { getSession } from '@/lib/server/session';
 import { rateLimit, serverState } from '@/lib/server/state';
 import { assertAccess } from '@/lib/server/moderation';
+import { signedInMember } from '@/lib/server/member';
 
 // Likes are Parallax's own, off-chain (Lens V3 has none): no relayer, no gas, so RELAY_PAUSED doesn't stop them.
 
@@ -35,20 +35,14 @@ export async function GET(request: Request) {
   });
 }
 
-/** The like's Account (the session's, still owned by the wallet that signed in) and post. */
+/** The like's Account (the session's member, checked on-chain: signedInMember) and post. */
 async function likeRequest(request: Request) {
   assertSameOrigin(request);
-  const { owner, account } = await getSession();
-  if (!owner || !account) {
-    throw new HttpError(401, 'Sign in with a Lens account first');
-  }
+  const { owner, account } = await signedInMember(await getSession());
   await assertAccess(owner, account);
   const { postId } = (await request.json()) as { postId?: unknown };
   const id = parsePostId(postId);
   await rateLimit(`like:${account}`, numberEnv('LIKE_RATE_LIMIT_PER_MINUTE', 60), 60 * 1000);
-  if (!(await isOwnedBy(account, owner))) {
-    throw new HttpError(403, 'Your wallet no longer owns this account, sign in again');
-  }
   return { account, postId: id };
 }
 

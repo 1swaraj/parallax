@@ -129,6 +129,31 @@ export const CONFIG_GROUPS: Record<string, { title: string; fields: ConfigField[
       },
     ],
   },
+  passport: {
+    title: 'Community Passport',
+    fields: [
+      {
+        key: 'passportIssuer',
+        label: 'Passport URL',
+        help: 'For example https://passport.example.com. Members sign in there with an email code, and keep one account across communities. Sign-in appears once these four and the client secret are set.',
+      },
+      {
+        key: 'passportClientId',
+        label: 'Client ID',
+        help: 'What the Passport registered this community as. Register the redirect URI <app URL>/api/auth/passport/callback, so set the app URL (Network) first.',
+      },
+      {
+        key: 'grantRegistry',
+        label: 'Grant registry address',
+        help: 'The registry the Passport uses. Members grant this community there.',
+      },
+      {
+        key: 'clubForwarder',
+        label: 'Forwarder address',
+        help: 'This community’s ClubForwarder, the address members grant: pnpm instance:deploy-forwarder. Its relayers must be this instance’s relayer keys.',
+      },
+    ],
+  },
   email: {
     title: 'Email',
     fields: [

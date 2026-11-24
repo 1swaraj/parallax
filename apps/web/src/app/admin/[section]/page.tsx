@@ -69,7 +69,9 @@ export default async function AdminSection({ params }: { params: Promise<{ secti
         ? ['relayerPrivateKeys']
         : section === 'email'
           ? ['resendApiKey']
-          : [];
+          : section === 'passport'
+            ? ['passportClientSecret']
+            : [];
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <h2 className="text-2xl">{group.title}</h2>
@@ -94,6 +96,9 @@ export default async function AdminSection({ params }: { params: Promise<{ secti
           title="Relayer private keys (comma-separated)"
           generate
         />
+      )}
+      {section === 'passport' && (
+        <SecretEditor name="passportClientSecret" title="Passport client secret" />
       )}
       {section === 'email' && (
         <>

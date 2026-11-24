@@ -20,35 +20,52 @@ import {
 import { currentConfig } from './instance-config';
 import { mediaStore } from '../config';
 import { runtimeContracts as contracts } from './contracts';
-import { isOwnedBy, isSponsored, publicClient } from './chain';
+import { isSponsored, publicClient } from './chain';
 import { numberEnv } from './env';
 import { HttpError } from './guard';
 import type { SessionData } from './session';
 import { rateLimit } from './state';
 import { assertSponsorPolicy, moderationSnapshot } from './moderation';
+import { isGranted, signedInMember, type Member } from './member';
 import { contentDecision } from '../moderation-policy';
 
 /**
- * The Account a sponsored request acts for: the session's, confirmed on-chain to still belong to the EOA that signed
- * in, and to have the SponsorRouter as manager. Rate-limited per Account.
+ * The member a sponsored request acts for, confirmed on-chain (signedInMember), and that this instance may make `call`
+ * for them: through the SponsorRouter, which the Account must have as manager, for a wallet session; or through the
+ * ClubForwarder, whose grant in Community Passport's registry must cover the call, for a Passport session.
+ * Rate-limited per Account.
  */
-export async function sponsoredAccount(session: SessionData): Promise<Address> {
-  const { owner, account } = session;
-  if (!owner || !account) {
-    throw new HttpError(401, 'Sign in with a Lens account first');
-  }
-  await assertSponsorPolicy(owner, account);
-  if (!(await isOwnedBy(account, owner))) {
-    throw new HttpError(403, 'Your wallet no longer owns this account, sign in again');
-  }
-  if (!(await isSponsored(account))) {
+export async function sponsoredMember(
+  session: SessionData,
+  call?: { target: Address; data: Hex }
+): Promise<Member> {
+  const member = await signedInMember(session);
+  await assertSponsorPolicy(member.owner, member.account);
+  if (member.passport) {
+    if (!call || !(await isGranted(member.passport, member.account, call.target, call.data))) {
+      throw new HttpError(
+        403,
+        `Your connection to ${currentConfig().appName} doesn't cover this. Sign in again to review what it can do.`,
+        { reauth: true }
+      );
+    }
+  } else if (!(await isSponsored(member.account))) {
     throw new HttpError(
       403,
       `This account doesn't let ${currentConfig().appName} pay its fees. Allow it in Settings.`
     );
   }
-  await rateLimit(`relay:${account}`, numberEnv('RELAY_RATE_LIMIT_PER_MINUTE', 30), 60 * 1000);
-  return account;
+  await rateLimit(
+    `relay:${member.account}`,
+    numberEnv('RELAY_RATE_LIMIT_PER_MINUTE', 30),
+    60 * 1000
+  );
+  return member;
+}
+
+/** The Account of a sponsored request through the SponsorRouter (wallet sessions): see sponsoredMember. */
+export async function sponsoredAccount(session: SessionData): Promise<Address> {
+  return (await sponsoredMember(session)).account;
 }
 
 /** Calldata and inline metadata are inspected before ownership RPCs and simulation. */

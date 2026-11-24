@@ -5,6 +5,7 @@ import { THEME_INIT_SCRIPT } from '@/components/theme';
 import { brandCopy } from '@/lib/brand';
 import { getInstanceConfig } from '@/lib/server/instance-config';
 import { getSecret } from '@/lib/server/secrets';
+import { passportSettings } from '@/lib/server/passport';
 import { publicConfig } from '@/lib/instance-schema';
 import './globals.css';
 import { Providers } from './providers';
@@ -48,7 +49,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       config.userEmailEnabled &&
       !!config.appUrl &&
       !!config.emailFrom &&
-      !!(await getSecret('resendApiKey'))
+      !!(await getSecret('resendApiKey')),
+    !!(await passportSettings())
   );
   const style = {
     '--instance-accent': config.accentColor,

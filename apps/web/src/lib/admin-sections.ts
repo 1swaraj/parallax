@@ -31,6 +31,13 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
     roles: CONFIG,
   },
   {
+    slug: 'passport',
+    label: 'Community Passport',
+    description:
+      'Email sign-in, one account across communities: the Passport, this client and its forwarder.',
+    roles: CONFIG,
+  },
+  {
     slug: 'email',
     label: 'Email',
     description: 'Resend key and domain, test emails, operator alerts and user digests.',

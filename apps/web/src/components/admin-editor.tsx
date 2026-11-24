@@ -145,7 +145,12 @@ export function SecretEditor({
   title,
   generate = false,
 }: {
-  name: 'resendApiKey' | 'relayerPrivateKeys' | 'walletConnectProjectId' | 'captchaSecret';
+  name:
+    | 'resendApiKey'
+    | 'relayerPrivateKeys'
+    | 'walletConnectProjectId'
+    | 'captchaSecret'
+    | 'passportClientSecret';
   title: string;
   generate?: boolean;
 }) {

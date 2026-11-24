@@ -10,11 +10,24 @@ import { CHAIN_ID } from './config';
 export type Session = {
   owner: Address | null;
   account: Address | null;
+  /** 'passport' when signed in through Community Passport: no wallet, and the app always relays. */
+  via?: 'passport' | null;
   /** This instance's admin role for the signed-in wallet, if it has one. */
   role?: 'owner' | 'admin' | 'moderator' | null;
 };
 
 const SESSION_KEY = ['session'];
+
+/** An API error, with the response's status and body: e.g. `reauth`, to send a Passport member to sign in again. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly body: Record<string, unknown>
+  ) {
+    super(message);
+  }
+}
 
 export async function api<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   const response = await fetch(path, {
@@ -24,9 +37,17 @@ export async function api<T>(path: string, init?: { method?: string; body?: unkn
   });
   const body = (await response.json().catch(() => ({}))) as T & { error?: string };
   if (!response.ok) {
-    throw new Error(body.error ?? `Request failed (${response.status})`);
+    throw new ApiError(body.error ?? `Request failed (${response.status})`, response.status, body);
   }
   return body;
+}
+
+/** Community Passport sign-in: a navigation, since the Passport's page takes over. Comes back to `returnTo`. */
+export function passportSignInUrl(returnTo = currentPath()) {
+  return `/api/auth/passport?returnTo=${encodeURIComponent(returnTo)}`;
+}
+function currentPath() {
+  return typeof window === 'undefined' ? '/' : window.location.pathname + window.location.search;
 }
 
 /**
@@ -48,7 +69,10 @@ export function useSession() {
   });
 
   const session: Session = !isError && data ? data : { owner: null, account: null };
-  const otherWallet = !!address && !!session.owner && !isAddressEqual(address, session.owner);
+  // A Passport session has no wallet: a connected wallet is someone else's business, not a different user.
+  const passport = session.via === 'passport';
+  const otherWallet =
+    !passport && !!address && !!session.owner && !isAddressEqual(address, session.owner);
   const owner = otherWallet ? null : session.owner;
   const account = otherWallet ? null : session.account;
   const role = otherWallet ? null : (session.role ?? null);
@@ -74,7 +98,11 @@ export function useSession() {
       return api<Session>('/api/auth/verify', { method: 'POST', body: { message, signature } });
     },
     onSuccess: (next) => {
-      queryClient.setQueryData(SESSION_KEY, { owner: next.owner, account: next.account });
+      queryClient.setQueryData(SESSION_KEY, {
+        owner: next.owner,
+        account: next.account,
+        via: null,
+      });
       void queryClient.invalidateQueries({ queryKey: ['likes'] });
     },
   });
@@ -102,8 +130,10 @@ export function useSession() {
     account,
     /** The wallet's admin role on this instance: only for showing links, the server checks it again. */
     role,
+    /** Signed in through Community Passport. */
+    passport,
     /** Connected, but the session is for nobody or another wallet. */
-    needsSignIn: !isLoading && !!address && (!session.owner || otherWallet),
+    needsSignIn: !isLoading && !passport && !!address && (!session.owner || otherWallet),
     signIn,
     signOut,
     selectAccount,

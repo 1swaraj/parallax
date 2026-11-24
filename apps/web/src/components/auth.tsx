@@ -5,11 +5,11 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useConnect, useConnection, useConnectors, useDisconnect } from 'wagmi';
 import { useGasMode, useLensActions, useSponsorship } from '@/lib/actions';
-import { useBrand } from '@/lib/runtime-config';
+import { useBrand, useInstanceConfig } from '@/lib/runtime-config';
 import { MAX_BIO_CHARACTERS, MAX_NAME_CHARACTERS } from '@/lib/config';
 import { useProfile } from '@/lib/indexer';
 import { NEW_PASSKEY, PASSKEY } from '@/lib/passkey';
-import { useSession } from '@/lib/session';
+import { passportSignInUrl, useSession } from '@/lib/session';
 import { atHandle, Avatar, displayName } from './account';
 import { Icon, type IconName } from './icons';
 import { useToast } from './toast';
@@ -312,12 +312,14 @@ export function connectorIcon(connector: { type: string }): IconName {
 }
 
 /**
- * The ways in, passkeys first: creating an account with one is the main action, signing in with one comes next, and
- * wallets are a step away. Without passkeys (NEXT_PUBLIC_PASSKEYS=false, or no WebAuthn), the wallets show at once.
- * `onConnected` runs once a connector connects; the sign-in flow takes over from there.
+ * The ways in. With Community Passport set up, email comes first: the Passport's page takes over, and the member comes
+ * back signed in with the account they use in every community. Then passkeys, if on (NEXT_PUBLIC_PASSKEYS=true, in a
+ * browser with WebAuthn): creating an account with one, then signing in with one, with wallets a step away. Otherwise
+ * the wallets show at once. `onConnected` runs once a connector connects; the sign-in flow takes over from there.
  */
 export function SignInOptions({ onConnected }: { onConnected?: () => void }) {
   const { APP_NAME } = useBrand();
+  const { passportEnabled } = useInstanceConfig();
   const connectors = useConnectors();
   const { mutate: connect, isPending, variables } = useConnect();
   const available = useSponsorship();
@@ -347,9 +349,20 @@ export function SignInOptions({ onConnected }: { onConnected?: () => void }) {
 
   return (
     <div className="flex w-full flex-col gap-3">
+      {passportEnabled && (
+        <>
+          <Button variant="primary" onClick={() => window.location.assign(passportSignInUrl())}>
+            <Icon name="mail" size={16} />
+            Continue with email
+          </Button>
+          <p className="text-xs text-text-tertiary">
+            With Community Passport: one account for every community app. No wallet, no seed phrase.
+          </p>
+        </>
+      )}
       {create && passkey ? (
         <>
-          {button(create, 'primary', 'Create an account')}
+          {button(create, passportEnabled ? 'secondary' : 'primary', 'Create an account')}
           {button(passkey, 'secondary', 'Sign in with a passkey')}
           <p className="text-xs text-text-tertiary">
             Your passkey is your account: Face ID, Touch ID or your password manager. No wallet, no
@@ -376,7 +389,7 @@ export function SignInOptions({ onConnected }: { onConnected?: () => void }) {
         wallets.map((wallet, index) =>
           button(
             wallet,
-            index === 0 ? 'primary' : 'secondary',
+            index === 0 && !passportEnabled ? 'primary' : 'secondary',
             `Continue with ${connectorName(wallet)}`
           )
         )

@@ -8,7 +8,9 @@ import { relayers } from './relayers';
 export class HttpError extends Error {
   constructor(
     readonly status: number,
-    message: string
+    message: string,
+    /** Sent alongside `error`, e.g. `reauth` when the member has to sign in through Community Passport again. */
+    readonly details?: Record<string, unknown>
   ) {
     super(message);
   }
@@ -88,7 +90,10 @@ export async function handle(run: () => Promise<Response>): Promise<Response> {
         { status: 400 }
       );
     if (error instanceof HttpError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      return NextResponse.json(
+        { ...error.details, error: error.message },
+        { status: error.status }
+      );
     }
     if (lensErrorName(error)) {
       return NextResponse.json({ error: describeLensError(error) }, { status: 400 });
