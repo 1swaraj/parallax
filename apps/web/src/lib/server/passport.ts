@@ -1,5 +1,7 @@
+import { NextResponse } from 'next/server';
 import * as oidc from 'openid-client';
 import { getAddress, isAddress, type Address } from 'viem';
+import { isLoopbackHttp } from '../instance-schema';
 import { appUrl } from './env';
 import { currentConfig } from './instance-config';
 import { HttpError } from './guard';
@@ -44,12 +46,6 @@ export async function requirePassport(): Promise<PassportSettings> {
   return settings;
 }
 
-/** Plain HTTP only for a Passport on this machine, in development. */
-function isLoopback(issuer: string) {
-  const { protocol, hostname } = new URL(issuer);
-  return protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
-}
-
 // The provider's metadata and keys change rarely: discover once per settings, and again after a while or a failure.
 const DISCOVERY_TTL_MS = 10 * 60 * 1000;
 let discovered: { key: string; config: Promise<oidc.Configuration>; until: number } | undefined;
@@ -68,7 +64,7 @@ function configuration(settings: PassportSettings): Promise<oidc.Configuration> 
         // OpenID Connect lets a client trust an ID token from the token endpoint on TLS alone; check its signature
         // against the Passport's published keys as well.
         oidc.enableNonRepudiationChecks,
-        ...(isLoopback(settings.issuer) ? [oidc.allowInsecureRequests] : []),
+        ...(isLoopbackHttp(settings.issuer) ? [oidc.allowInsecureRequests] : []),
       ],
     }
   );
@@ -150,7 +146,25 @@ export function passportRedirectUri(request: Request): string {
   return new URL('/api/auth/passport/callback', appUrl() ?? new URL(request.url).origin).toString();
 }
 
-/** A path in this app, and nothing else, so the callback can't be made to send members to another site. */
+/**
+ * A path in this app, and nothing else, so the callback can't be made to send members to another site. It's resolved
+ * the way the redirect will be: URLs drop tabs and newlines and read `\` as `/`, so `/\t/evil.example` is
+ * `//evil.example`.
+ */
 export function safeReturnTo(value: string | null): string {
-  return value && /^\/(?![/\\])/.test(value) && !/[\r\n]/.test(value) ? value : '/';
+  if (!value?.startsWith('/') || /[\x00-\x1f\x7f]/.test(value)) return '/';
+  const app = 'http://app.invalid';
+  try {
+    const url = new URL(value, app);
+    return url.origin === app ? url.pathname + url.search + url.hash : '/';
+  } catch {
+    return '/';
+  }
+}
+
+/** Back to a page of this app after a Passport sign-in, with `?signin_error=` when it didn't complete. */
+export function backToApp(request: Request, path: string, error?: string) {
+  const url = new URL(path, appUrl() ?? request.url);
+  if (error) url.searchParams.set('signin_error', error);
+  return NextResponse.redirect(url, { status: 303, headers: { 'cache-control': 'no-store' } });
 }

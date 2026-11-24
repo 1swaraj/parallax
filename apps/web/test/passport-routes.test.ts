@@ -18,7 +18,11 @@ import { contracts } from '../src/lib/config';
 import { ownerOf, sendAsRelayer } from '../src/lib/server/chain';
 import { HttpError } from '../src/lib/server/guard';
 import { assertAccess } from '../src/lib/server/moderation';
-import { finishPassportSignIn, startPassportSignIn } from '../src/lib/server/passport';
+import {
+  finishPassportSignIn,
+  requirePassport,
+  startPassportSignIn,
+} from '../src/lib/server/passport';
 import { getSession, type SessionData } from '../src/lib/server/session';
 import { sponsoredMember } from '../src/lib/server/sponsor';
 import { randomAddress } from './helpers';
@@ -77,6 +81,24 @@ describe('signing in through Community Passport', () => {
     );
     expect(session.passport).toBe(pending);
     expect(session.save).toHaveBeenCalled();
+  });
+
+  it('sends the browser back with the reason when the sign-in cannot start, not to a JSON page', async () => {
+    vi.mocked(requirePassport).mockRejectedValueOnce(
+      new HttpError(404, 'Community Passport sign-in is not set up here')
+    );
+    const unset = await start(new Request(`${APP}/api/auth/passport?returnTo=/p/42`));
+    expect(unset.status).toBe(303);
+    expect(unset.headers.get('location')).toBe(
+      `${APP}/p/42?signin_error=Community+Passport+sign-in+is+not+set+up+here`
+    );
+    vi.mocked(startPassportSignIn).mockRejectedValueOnce(new Error('discovery failed'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const unreachable = await start(new Request(`${APP}/api/auth/passport`));
+    expect(new URL(unreachable.headers.get('location')!).searchParams.get('signin_error')).toBe(
+      'Community Passport could not sign you in. Try again.'
+    );
+    expect(session.passport).toBeUndefined();
   });
 
   const pending = (at = Date.now()) => ({

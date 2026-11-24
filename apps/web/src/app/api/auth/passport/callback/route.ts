@@ -1,9 +1,8 @@
-import { NextResponse } from 'next/server';
 import { ownerOf } from '@/lib/server/chain';
-import { appUrl } from '@/lib/server/env';
 import { handle, HttpError } from '@/lib/server/guard';
 import { assertAccess, rememberExternalAccount } from '@/lib/server/moderation';
 import {
+  backToApp,
   finishPassportSignIn,
   passportRedirectUri,
   PENDING_TTL_MS,
@@ -24,11 +23,7 @@ export async function GET(request: Request) {
     const pending = session.passport;
     // A sign-in under way is good for one attempt.
     session.passport = undefined;
-    const back = (path: string, error?: string) => {
-      const url = new URL(path, appUrl() ?? request.url);
-      if (error) url.searchParams.set('signin_error', error);
-      return NextResponse.redirect(url, { status: 303, headers: { 'cache-control': 'no-store' } });
-    };
+    const back = (path: string, error?: string) => backToApp(request, path, error);
     const params = new URL(request.url).searchParams;
     if (!pending || Date.now() - pending.at > PENDING_TTL_MS) {
       await session.save();

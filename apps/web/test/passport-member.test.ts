@@ -4,11 +4,13 @@
 import { passportRelayAbi } from '@lens-monad/protocol';
 import { ContractFunctionRevertedError, encodeErrorResult, type Address } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { GET as getEmail } from '../src/app/api/email/route';
 import { contracts } from '../src/lib/config';
 import { isOwnedBy, isSponsored, publicClient } from '../src/lib/server/chain';
 import { HttpError } from '../src/lib/server/guard';
 import { passportRevert, signedInMember } from '../src/lib/server/member';
 import { passportSettings } from '../src/lib/server/passport';
+import { getSession } from '../src/lib/server/session';
 import { sponsoredMember } from '../src/lib/server/sponsor';
 import { randomAddress } from './helpers';
 
@@ -22,6 +24,7 @@ vi.mock('../src/lib/server/moderation', () => ({
   moderationSnapshot: vi.fn(),
 }));
 vi.mock('../src/lib/server/passport', () => ({ passportSettings: vi.fn() }));
+vi.mock('../src/lib/server/session', () => ({ getSession: vi.fn() }));
 
 const SETTINGS = {
   issuer: 'https://passport.example',
@@ -96,6 +99,14 @@ describe('a Community Passport session', () => {
   it('is never sponsored through the SponsorRouter, e.g. for a profile', async () => {
     expect((await refusal(sponsoredMember(session()))).status).toBe(403);
     expect(isSponsored).not.toHaveBeenCalled();
+  });
+
+  it('manages email digests only while its grant is live', async () => {
+    vi.mocked(getSession).mockResolvedValue(session() as never);
+    grantExpiry = 0n;
+    const response = await getEmail();
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ reauth: true });
   });
 
   it('needs its Account and holder, and the Passport still set up', async () => {

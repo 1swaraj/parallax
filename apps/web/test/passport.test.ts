@@ -220,7 +220,11 @@ describe('where a sign-in comes back to', () => {
     ['/\\evil.example', '/'],
     ['https://evil.example', '/'],
     ['/ok\r\nSet-Cookie: x=1', '/'],
-  ])('%s becomes %s', (value, expected) => {
+    // URLs drop tabs: this one is //evil.example.
+    ['/\t/evil.example', '/'],
+    ['/%09/evil.example', '/%09/evil.example'],
+    ['/a/../p/42', '/p/42'],
+  ])('%j becomes %s', (value, expected) => {
     expect(safeReturnTo(value)).toBe(expected);
   });
 });
@@ -245,6 +249,14 @@ describe('Passport settings', () => {
     expect(() =>
       resolveConfig({}, { CLUB_FORWARDER_ADDRESS: '0x0000000000000000000000000000000000000000' })
     ).toThrow(/CLUB_FORWARDER_ADDRESS/);
+  });
+
+  it('takes a Passport over HTTPS, or plain HTTP on this machine only', () => {
+    const issuer = (passportIssuer: string) => InstanceConfig.safeParse({ passportIssuer }).success;
+    expect(issuer('https://passport.example')).toBe(true);
+    expect(issuer('http://localhost:4000')).toBe(true);
+    expect(issuer('http://127.0.0.1:4000')).toBe(true);
+    expect(issuer('http://passport.example')).toBe(false);
   });
 
   it('tells browsers where the Passport is only once sign-in through it works', () => {

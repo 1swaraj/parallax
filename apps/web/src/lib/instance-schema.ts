@@ -9,6 +9,12 @@ const url = z
   .url()
   .refine((value) => /^https?:\/\//i.test(value), 'Use an HTTP or HTTPS URL');
 const optionalUrl = z.union([url, z.literal('')]);
+
+/** A plain-HTTP URL on this machine: allowed for a Community Passport in development, and nowhere else HTTPS is due. */
+export function isLoopbackHttp(value: string) {
+  const { protocol, hostname } = new URL(value);
+  return protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
+}
 const count = z.number().int().positive().max(1_000_000_000);
 const gas = z.string().regex(/^[1-9][0-9]{0,24}$/, 'Use a positive number of gas units');
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use a six-digit hex color');
@@ -59,7 +65,12 @@ export const InstanceConfig = z
     userEmailEnabled: z.boolean().default(false),
     // Community Passport: email sign-in, one Lens Account across communities. Off until all four are set, and the
     // client secret too (passportSettings).
-    passportIssuer: optionalUrl.default(''),
+    passportIssuer: optionalUrl
+      .refine(
+        (value) => !value || /^https:\/\//i.test(value) || isLoopbackHttp(value),
+        'Use an HTTPS URL (plain HTTP only for localhost)'
+      )
+      .default(''),
     passportClientId: z.string().trim().max(200).default(''),
     grantRegistry: optionalAddress.default(''),
     clubForwarder: optionalAddress.default(''),
