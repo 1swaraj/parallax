@@ -3,6 +3,7 @@ import { decodeFunctionData, encodeFunctionData, zeroAddress, zeroHash } from 'v
 import { afterEach, expect, it, vi } from 'vitest';
 import { POST } from '../src/app/api/profile/route';
 import { sendAsRelayer } from '../src/lib/server/chain';
+import { getSession } from '../src/lib/server/session';
 
 vi.mock('../src/lib/server/chain', () => ({ sendAsRelayer: vi.fn() }));
 vi.mock('../src/lib/server/session', () => ({ getSession: vi.fn(async () => ({})) }));
@@ -41,4 +42,24 @@ it('encodes the profile route with the deployed three-argument SponsorRouter ABI
   );
   expect(response.status).toBe(200);
   expect(sendAsRelayer).toHaveBeenCalledOnce();
+});
+
+it("refuses a Community Passport member: their profile is the Passport's to edit", async () => {
+  vi.stubEnv('RELAY_PAUSED', 'false');
+  vi.mocked(getSession).mockResolvedValueOnce({ via: 'passport' } as never);
+  vi.mocked(sendAsRelayer).mockClear();
+  const response = await POST(
+    new Request('http://localhost:3000/api/profile', {
+      method: 'POST',
+      headers: {
+        origin: 'http://localhost:3000',
+        host: 'localhost:3000',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'Someone' }),
+    })
+  );
+  expect(response.status).toBe(403);
+  expect(await response.json()).toEqual({ error: 'Edit your profile on Community Passport' });
+  expect(sendAsRelayer).not.toHaveBeenCalled();
 });

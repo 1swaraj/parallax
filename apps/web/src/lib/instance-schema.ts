@@ -12,6 +12,13 @@ const optionalUrl = z.union([url, z.literal('')]);
 const count = z.number().int().positive().max(1_000_000_000);
 const gas = z.string().regex(/^[1-9][0-9]{0,24}$/, 'Use a positive number of gas units');
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use a six-digit hex color');
+const optionalAddress = z.union([
+  z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{40}$/, 'Use a 0x address')
+    .refine((value) => !/^0x0{40}$/.test(value), 'Use a nonzero address'),
+  z.literal(''),
+]);
 export const InstanceConfig = z
   .object({
     appName: z.string().trim().min(1).max(64).default(APP_NAME),
@@ -50,6 +57,12 @@ export const InstanceConfig = z
       .regex(/^$|^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/)
       .default(''),
     userEmailEnabled: z.boolean().default(false),
+    // Community Passport: email sign-in, one Lens Account across communities. Off until all four are set, and the
+    // client secret too (passportSettings).
+    passportIssuer: optionalUrl.default(''),
+    passportClientId: z.string().trim().max(200).default(''),
+    grantRegistry: optionalAddress.default(''),
+    clubForwarder: optionalAddress.default(''),
     moderation: ModerationPolicy.default({}),
   })
   .strict();
@@ -82,6 +95,10 @@ export const CONFIG_ENV = {
   emailFrom: ['RESEND_FROM_ADDRESS'],
   emailDomain: ['RESEND_DOMAIN'],
   userEmailEnabled: ['USER_EMAIL_ENABLED'],
+  passportIssuer: ['PASSPORT_ISSUER'],
+  passportClientId: ['PASSPORT_CLIENT_ID'],
+  grantRegistry: ['PASSPORT_GRANT_REGISTRY'],
+  clubForwarder: ['CLUB_FORWARDER_ADDRESS'],
   moderation: [],
 } as const satisfies Record<keyof InstanceConfig, readonly string[]>;
 
@@ -130,11 +147,13 @@ export type PublicConfig = Pick<
   | 'publicRpcUrl'
   | 'explorerUrl'
   | 'sponsorRouter'
-> & { walletConnectProjectId: string; emailEnabled: boolean };
+  | 'passportIssuer'
+> & { walletConnectProjectId: string; emailEnabled: boolean; passportEnabled: boolean };
 export function publicConfig(
   config: InstanceConfig,
   walletConnectProjectId = '',
-  emailEnabled = false
+  emailEnabled = false,
+  passportEnabled = false
 ): PublicConfig {
   const {
     appName,
@@ -163,5 +182,8 @@ export function publicConfig(
     sponsorRouter,
     walletConnectProjectId,
     emailEnabled,
+    // Where members manage their profile and connected apps. Only sent once sign-in through it works.
+    passportIssuer: passportEnabled ? config.passportIssuer : '',
+    passportEnabled,
   };
 }

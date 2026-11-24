@@ -25,8 +25,9 @@ scripts/          Local node + deployment, seed data, ABI and address book sync
   own, kept by its server, and other Lens apps don't see them.
 - **Notifications:** follows, likes (grouped), replies, reposts, quotes and mentions, with an unread badge.
 - **Explore:** people search, post search, hashtag search, and "Trending" (the last week's hashtags).
-- **Accounts:** connect a wallet or use a passkey, sign in with one free signature (SIWE), and pick a username. The
-  first account is free.
+- **Accounts:** connect a wallet and sign in with one free signature (SIWE), or continue with email through
+  [Community Passport](#community-passport-sign-in), which keeps one account across community apps. Passkeys are
+  optional. The first account is free.
 - **Settings:** edit profile, light or dark mode, and who pays network fees.
 
 ## How it works
@@ -44,8 +45,10 @@ passkey" makes one, "Sign in with a passkey" uses one. The key lives in the page
 the page closes or the user signs out, and the code that derives it loads only once a passkey prompt is open. After a
 reload the app knows the address without asking, and asks for the passkey only when something needs a signature; once
 signed in, sponsored actions don't. Passkeys belong to the site's domain, so an account made on one domain (or on
-`localhost`) doesn't exist on another. The password manager has to support the PRF extension: iCloud Keychain, Google
-Password Manager and 1Password do. `NEXT_PUBLIC_PASSKEYS=false` turns it off.
+`localhost`) doesn't exist on another. That's why passkeys are off by default (`NEXT_PUBLIC_PASSKEYS=true` turns them
+on): each community runs on its own domain, so the same person would get a different account in each. Communities that
+want sign-in without a wallet use [Community Passport](#community-passport-sign-in) instead. The password manager has
+to support the PRF extension: iCloud Keychain, Google Password Manager and 1Password do.
 
 **Writes.** Every action is a call the Account makes (`packages/protocol/src/calls.ts`): `Feed.createPost`,
 `Graph.follow`, `AccountBlockingRule.blockUser`… The primitives check that the Account is the author, follower or
@@ -443,6 +446,66 @@ posts immediately, but can sponsor that Account only after its owner adds the se
 Per-instance Lens App registration and signed source stamps are possible, but this change does not
 enable them; the design document records the required client and indexer work.
 
+### Community Passport sign-in
+
+[Community Passport](https://github.com/bensprks/community-passport) gives members one sign-in, an emailed code, and one
+Lens Account across every community app. To this app it's an OpenID Connect provider: "Continue with email" sends the
+member to the Passport, which sends them back with a code. The app swaps that code, server to server, for an ID token
+whose `sub` is the member's Lens Account (`apps/web/src/lib/server/passport.ts`, on
+[openid-client](https://github.com/panva/openid-client): authorization code with PKCE, HTTP Basic client
+authentication, ES256 ID tokens). The ID token's signature is checked against the Passport's published keys, not
+taken on TLS alone.
+
+**Acting for members.** A Passport member has no wallet in the app. On the Passport they grant this community a list of
+Lens functions until an expiry, in the Passport's grant registry: a contract each of their Accounts has as manager. A
+grant names one caller, and this instance sends from several relayer keys. So members grant the community's
+**ClubForwarder** (`contracts/src/ClubForwarder.sol`), and the relayers call it:
+
+```
+relayer ─▶ ClubForwarder.execute(account, target, data) ─▶ GrantRegistry.execute ─▶ Account ─▶ Lens feed, graph
+           (allowlisted relayers)                           (grant live, function in it)
+```
+
+`/api/relay` sends a Passport member's calls that way, after checking `isAllowed` for the call
+(`sponsoredMember`). Wallet sessions still go through the SponsorRouter. The community owns the forwarder and decides
+who relays. When a developer hands a community over, the forwarder's ownership moves (`transferOwnership`, then
+`acceptOwnership`) and its relayers change. Every member's grant stays as it is.
+
+**What a Passport session can do.** Post, reply, follow, block and upload images, within the grant. Likes and reports
+work too. Each action checks that the grant is still live, so a member who disconnects the community on the Passport
+is signed out here. When a grant has ended, or doesn't cover an action, the app sends the member back through the
+Passport to renew it. A member's profile is one identity across communities, so they edit it on the Passport: Edit
+profile opens it, and `/api/profile` refuses. Moderation knows a Passport member by the Account's owner on-chain when
+they signed in. Wallet allowlists and token gates check that owner, which holds no tokens, so a token-gated community
+needs its members to sign in with a wallet. Admins always sign in to `/admin` with a wallet.
+
+**Setting it up:**
+
+1. Set the app URL (Admin → Network). The Passport sends members back to `<app URL>/api/auth/passport/callback`, which
+   must match the registration exactly.
+2. Deploy the community's forwarder, with this instance's relayer addresses:
+
+   ```sh
+   NEXT_PUBLIC_CHAIN_ID=10143 \
+   PASSPORT_GRANT_REGISTRY=0xTheRegistry \
+   INSTANCE_RELAYER_ADDRESSES=0xYourRelayerAddress,0xAnotherRelayerAddress \
+   INSTANCE_DEPLOYER_KEYSTORE=my-instance-owner \
+   pnpm instance:deploy-forwarder
+   ```
+
+   It signs like `instance:deploy-router` (a Foundry keystore, or `INSTANCE_DEPLOYER_PRIVATE_KEY`), checks the
+   registry has code, and verifies the owner, registry and relayers after deploying. It prints `CLUB_FORWARDER_ADDRESS`.
+   The relayers pay the gas of members' actions, as for sponsored wallet sessions.
+
+3. Register the community with the Passport's operator: its name, the redirect URI above, the forwarder as its key,
+   and the Lens functions it asks for. The standard set is `LensGlobalFeed.createPost`, `LensGlobalGraph` follow and
+   unfollow, `AccountBlockingRule` block and unblock, and, for images, `MediaStore.put`. Editing and deleting posts on
+   the shared feed reach posts made in other apps, so make them optional. You get a client ID and secret.
+4. In Admin → Community Passport, set the Passport URL, client ID, grant registry and forwarder, and the client secret
+   (encrypted, like the other secrets). "Continue with email" appears once all five are set.
+
+The forwarder's tests run with `forge test --root contracts`.
+
 ### Full mode: own indexer on Railway
 
 Use full mode if you want control over indexing cost, availability and traffic logs. Keep the same
@@ -560,7 +623,7 @@ and Postgres on Railway; both modes use the same Vercel settings.
 | `NEXT_PUBLIC_RPC_URL`                       | Vercel                             | The RPC browsers use. Public: no unrestricted API key                                                                     |
 | `NEXT_PUBLIC_APP_URL`                       | Vercel, Production only            | Runtime public app URL (or `APP_URL`); sign-in messages must name its host                                                |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`      | Vercel                             | Runtime Reown project ID override; optional. Allowlist the app's domains in Reown                                         |
-| `NEXT_PUBLIC_PASSKEYS`                      | Vercel                             | `false` hides the passkey sign-in (Passkeys, above). On by default. Read at build time                                    |
+| `NEXT_PUBLIC_PASSKEYS`                      | Vercel                             | `true` shows the passkey sign-in (Passkeys, above). Off by default. Read at build time                                    |
 | `RPC_URL`                                   | Vercel, sensitive                  | The server's RPC, e.g. a paid one. The public testnet RPC rate-limits per IP, which Vercel shares                         |
 | `INDEXER_URL`                               | Vercel (runtime override)          | Runtime indexer URL; `/indexer` streams from the current config                                                           |
 | `RELAYER_PRIVATE_KEYS`                      | Vercel, sensitive, Production only | Override for encrypted relayer keys (`RELAYER_PRIVATE_KEY` for one); panel changes need no restart                        |
@@ -596,6 +659,10 @@ and Postgres on Railway; both modes use the same Vercel settings.
 | `USER_EMAIL_ENABLED`                        | Vercel                             | Runtime override for optional user digests (`false` by default)                                                           |
 | `CRON_SECRET`                               | Vercel, sensitive                  | Bearer token protecting the operator alerts and digest cron                                                               |
 | `CAPTCHA_SECRET`                            | Vercel, sensitive                  | Optional override for the encrypted Cloudflare Turnstile secret; checked by the sign-up API                               |
+| `PASSPORT_ISSUER`, `PASSPORT_CLIENT_ID`     | Vercel                             | Runtime overrides for Community Passport's URL and this community's client ID (Community Passport sign-in, above)         |
+| `PASSPORT_GRANT_REGISTRY`                   | Vercel                             | Runtime override for the Passport's grant registry address                                                                |
+| `CLUB_FORWARDER_ADDRESS`                    | Vercel                             | Runtime override for this community's ClubForwarder, which members grant                                                  |
+| `PASSPORT_CLIENT_SECRET`                    | Vercel, sensitive                  | Optional override for the encrypted Passport client secret                                                                |
 | `HEALTH_TOKEN`                              | Vercel, sensitive                  | Bearer token that shows `/api/health` details; signed-in admins can also see them                                         |
 | `PONDER_*`, `DATABASE_URL`                  | Railway (indexer)                  | See `apps/indexer/.env.example`                                                                                           |
 | `MEDIA_BLOCKLIST`                           | Railway (indexer)                  | Image ids `/media` refuses (451), comma-separated: takedowns. The bytes stay on-chain; the app stops serving them         |

@@ -8,3 +8,4 @@ export * from './usernames';
 export * from './api';
 export * from './errors';
 export { deployInstanceRouter } from './router';
+export * from './passport';

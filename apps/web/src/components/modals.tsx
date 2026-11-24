@@ -12,6 +12,8 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useInstanceConfig } from '@/lib/runtime-config';
+import { useSession } from '@/lib/session';
 import { atHandle, Avatar, NameLine, RelativeTime, RichText } from './account';
 import { AuthFlow } from './auth';
 import { Composer } from './composer';
@@ -49,7 +51,22 @@ export const useCompose = () => useModals().compose;
 /** Opens the connect, sign in, create account flow. */
 export const useAuthModal = () => useModals().auth;
 export const useConfirm = () => useModals().confirm;
-export const useEditProfile = () => useModals().editProfile;
+/**
+ * Opens the profile editor. A Community Passport member has one profile in every community, edited on the Passport:
+ * this opens its page instead (the app can't set it for them).
+ */
+export function useEditProfile() {
+  const edit = useModals().editProfile;
+  const { passport } = useSession();
+  const { passportIssuer } = useInstanceConfig();
+  return useCallback(() => {
+    if (passport && passportIssuer) {
+      window.open(new URL('/account', passportIssuer).toString(), '_blank', 'noopener');
+    } else {
+      edit();
+    }
+  }, [passport, passportIssuer, edit]);
+}
 
 /** The post being replied to, above the composer, linked to it by the thread line. */
 function ReplyContext({ post }: { post: PostView }) {

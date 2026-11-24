@@ -7,6 +7,7 @@ import {
   createAccountWithUsernameArgs,
   describeLensError,
   directExecution,
+  EMPTY_SOURCE_STAMP,
   feedAbi,
   lensFactoryAbi,
   mediaId,
@@ -35,7 +36,7 @@ import {
 import { CHAIN_ID, contracts as defaultContracts, mediaStore } from './config';
 import { useNetwork } from './runtime-config';
 import { useProfile, waitForIndexer } from './indexer';
-import { api, useSession } from './session';
+import { api, ApiError, passportSignInUrl, useSession } from './session';
 
 export type GasMode = 'sponsored' | 'direct';
 
@@ -107,7 +108,7 @@ export function useLensActions() {
   const config = useConfig();
   const queryClient = useQueryClient();
   const { chainId, address } = useConnection();
-  const { owner, account, setAccount } = useSession();
+  const { owner, account, passport, setAccount } = useSession();
   const [gasMode] = useGasMode();
   const available = useSponsorship();
   const { data: profile } = useProfile(account, null);
@@ -118,7 +119,8 @@ export function useLensActions() {
     abi: accountAbi,
     functionName: 'canExecuteTransactions',
     args: [contracts.SponsorRouter],
-    query: { enabled: !!account, staleTime: 5_000, refetchInterval: 15_000 },
+    // A Passport member's grant, not the router, says what the app may do: the server checks it on each relay.
+    query: { enabled: !!account && !passport, staleTime: 5_000, refetchInterval: 15_000 },
   });
   const sponsorshipAllowed =
     permission.data ??
@@ -127,7 +129,9 @@ export function useLensActions() {
       : undefined);
   // The app pays unless the user chose their wallet (Settings), the app can't pay right now, or the Account
   // doesn't have the SponsorRouter as manager.
-  const sponsored = gasMode === 'sponsored' && available !== false && (sponsorshipAllowed ?? true);
+  const sponsored = passport
+    ? true
+    : gasMode === 'sponsored' && available !== false && (sponsorshipAllowed ?? true);
 
   const sendFromWallet = useCallback(
     async (to: Address, data: Hex) => {
@@ -152,13 +156,23 @@ export function useLensActions() {
     [config, chainId, address, owner]
   );
 
-  /** The relayer already waited for the receipt, and says which post it created. */
+  /**
+   * The relayer already waited for the receipt, and says which post it created. When a Passport member's grant has
+   * ended, or doesn't cover the action, the server says `reauth`: the Passport renews it on the way back.
+   */
   const relay = useCallback(async (path: string, body: unknown): Promise<ActionResult> => {
-    const result = await api<{ blockNumber: string; postId?: string | null }>(path, {
-      method: 'POST',
-      body,
-    });
-    return { blockNumber: BigInt(result.blockNumber), postId: result.postId ?? null };
+    try {
+      const result = await api<{ blockNumber: string; postId?: string | null }>(path, {
+        method: 'POST',
+        body,
+      });
+      return { blockNumber: BigInt(result.blockNumber), postId: result.postId ?? null };
+    } catch (error) {
+      if (error instanceof ApiError && error.body.reauth === true) {
+        window.location.assign(passportSignInUrl());
+      }
+      throw error;
+    }
   }, []);
 
   /** Sends a call for the Account, sponsored or from the wallet, and waits for its receipt (not the indexer). */
@@ -178,7 +192,7 @@ export function useLensActions() {
       if (!account) {
         throw new Error('Sign in with a Lens account first');
       }
-      if (gasMode === 'sponsored' && !permission.isSuccess) {
+      if (!passport && gasMode === 'sponsored' && !permission.isSuccess) {
         throw new Error('Checking network fee permissions. Try again in a moment.');
       }
       const resolved = typeof call === 'function' ? call(account) : call;
@@ -190,7 +204,7 @@ export function useLensActions() {
         throw new Error(describeLensError(error));
       }
     },
-    [account, gasMode, permission.isSuccess, send, queryClient]
+    [account, passport, gasMode, permission.isSuccess, send, queryClient]
   );
 
   /**
@@ -307,6 +321,10 @@ export function useLensActions() {
       if (!account) {
         throw new Error('Sign in with a Lens account first');
       }
+      // One profile across communities, edited on the Passport: a grant can't set it.
+      if (passport) {
+        throw new Error('Edit your profile on Community Passport');
+      }
       try {
         if (gasMode === 'sponsored' && !permission.isSuccess) {
           throw new Error('Checking network fee permissions. Try again in a moment.');
@@ -315,10 +333,12 @@ export function useLensActions() {
         if (sponsored) {
           blockNumber = (await relay('/api/profile', params)).blockNumber;
         } else {
+          // The overload with a source stamp: the one-argument setMetadataURI is a stub that reverts
+          // (NotImplemented). No app's stamp sets the Account's default profile, as the sponsored path does.
           const data = encodeFunctionData({
             abi: accountAbi,
             functionName: 'setMetadataURI',
-            args: [toDataURI(accountMetadata(params))],
+            args: [toDataURI(accountMetadata(params)), EMPTY_SOURCE_STAMP],
           });
           blockNumber = (await sendFromWallet(account, data)).blockNumber;
         }
@@ -327,7 +347,16 @@ export function useLensActions() {
         throw new Error(describeLensError(error));
       }
     },
-    [account, sponsored, gasMode, permission.isSuccess, relay, sendFromWallet, queryClient]
+    [
+      account,
+      passport,
+      sponsored,
+      gasMode,
+      permission.isSuccess,
+      relay,
+      sendFromWallet,
+      queryClient,
+    ]
   );
 
   /** Adds the SponsorRouter as manager, from the owner's wallet, so that the relayer can pay from then on. */

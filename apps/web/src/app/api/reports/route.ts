@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { isOwnedBy } from '@/lib/server/chain';
 import { getSession } from '@/lib/server/session';
 import { assertSameOrigin, handle, HttpError } from '@/lib/server/guard';
 import { assertAccess, auditModeration } from '@/lib/server/moderation';
+import { signedInMember } from '@/lib/server/member';
 import { database, migrate } from '@/lib/server/db';
 import { rateLimit } from '@/lib/server/state';
 import { notifyAdmins } from '@/lib/server/notifications-email';
@@ -11,12 +11,12 @@ import { parsePostId } from '@/lib/server/posts';
 export async function POST(request: Request) {
   return handle(async () => {
     assertSameOrigin(request);
-    const { owner, account } = await getSession();
-    if (!owner || !account) throw new HttpError(401, 'Sign in with a Lens account to report');
+    const { owner, account } = await signedInMember(
+      await getSession(),
+      'Sign in with a Lens account to report'
+    );
     await assertAccess(owner, account);
     await rateLimit(`report:${account}`, 10, 3600_000);
-    if (!(await isOwnedBy(account, owner)))
-      throw new HttpError(403, 'Your wallet no longer owns this account');
     const body = z
       .object({
         targetType: z.enum(['post', 'account']),

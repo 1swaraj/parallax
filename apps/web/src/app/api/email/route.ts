@@ -7,10 +7,12 @@ import { subscribeEmail, emailAvailable } from '@/lib/server/notifications-email
 import { rateLimit } from '@/lib/server/state';
 import { clientIpKey } from '@/lib/server/requests';
 export const dynamic = 'force-dynamic';
+/** Digests find a subscriber's accounts by their owner: the wallet that signed in, or a Passport member's holder. */
 async function emailOwner() {
   const session = await getSession();
-  if (!session.owner) throw new HttpError(401, 'Sign in first');
-  return session.owner.toLowerCase();
+  const owner = session.owner ?? (session.via === 'passport' ? session.holder : undefined);
+  if (!owner) throw new HttpError(401, 'Sign in first');
+  return owner.toLowerCase();
 }
 export async function GET() {
   return handle(async () => {

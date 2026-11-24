@@ -11,6 +11,17 @@ import { getSession } from '@/lib/server/session';
 export async function GET() {
   return handle(async () => {
     const session = await getSession();
+    // Signed in through Community Passport: no wallet, and no admin role (admins sign in with their wallet). The grant
+    // is checked where it matters, on each action (signedInMember), not on this poll.
+    if (session.via === 'passport' && session.account && session.holder) {
+      // Once the indexer has the Account (a new one may lag at sign-in), its creation time is recorded.
+      await rememberExternalAccount(session.account, session.holder).catch(() => {});
+      await assertAccess(session.holder, session.account);
+      return NextResponse.json(
+        { owner: null, account: session.account, via: 'passport', role: null },
+        { headers: { 'cache-control': 'no-store' } }
+      );
+    }
     // Signed in without an account: one may have been created since (e.g. from the wallet), so look again.
     if (session.owner && !session.account) {
       const [found] = await accountsOwnedBy(session.owner).catch(() => []);
@@ -38,6 +49,9 @@ export async function PUT(request: Request) {
     assertSameOrigin(request);
     const session = await getSession();
     const { account, signup } = (await request.json()) as { account?: string; signup?: boolean };
+    if (session.via === 'passport') {
+      throw new HttpError(400, 'Community Passport signs in one account');
+    }
     if (!session.owner) {
       throw new HttpError(401, 'Sign in first');
     }

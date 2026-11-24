@@ -112,7 +112,7 @@ function SelectionCard({
 }
 
 function AccountSection() {
-  const { account, signOut } = useSession();
+  const { account, passport, signOut } = useSession();
   const { data } = useProfile(account, null);
   const editProfile = useEditProfile();
   const { mutate: disconnect } = useDisconnect();
@@ -128,6 +128,11 @@ function AccountSection() {
             {displayName(data.account)}
           </div>
           <div className="truncate text-text-tertiary">{atHandle(data.account)}</div>
+          {passport && (
+            <div className="text-xs text-text-tertiary">
+              Signed in with Community Passport. Your profile and connected apps are there.
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
           <Button onClick={editProfile}>Edit profile</Button>
@@ -256,7 +261,7 @@ function SpecRow({ topic, value, href }: { topic: string; value: string; href?: 
 export default function SettingsPage() {
   const { chain, contracts, EXPLORER_URL, explorerAddressUrl } = useNetwork();
   const { APP_NAME } = useBrand();
-  const { owner, account, role } = useSession();
+  const { owner, account, passport, role } = useSession();
   const [theme, setTheme] = useTheme();
   const openAuth = useAuthModal();
   usePageTitle('Settings');
@@ -304,7 +309,8 @@ export default function SettingsPage() {
           ]}
         />
       </Section>
-      {account && <FeesSection />}
+      {/* A Passport member's community always pays: there's no wallet to pay from. */}
+      {account && !passport && <FeesSection />}
       <EmailSettings />
       <Section
         title="Network"

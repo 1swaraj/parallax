@@ -1,7 +1,8 @@
 # Checks every pull request and every push to main:
 #
 #   checks     formatting, types, and the unit tests, the Postgres implementations' included
-#   contracts  MediaStore's committed artifact is what its source builds to: its CREATE2 address depends on it
+#   contracts  The committed contract artifacts are what their sources build to (MediaStore's CREATE2 address depends
+#              on its), and ClubForwarder's tests
 #   e2e        the local stack (`pnpm chain`, the indexer, the app) and the end-to-end suites against it. The Lens
 #              contracts are a private repository: this needs the LENS_CONTRACTS_TOKEN secret, a token that can read
 #              monad-developers/lens-monad-protocol, and is skipped without it (e.g. on forks' pull requests).
@@ -56,7 +57,7 @@ jobs:
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
   contracts:
-    name: MediaStore artifact
+    name: Contract artifacts and tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -68,8 +69,9 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/build-contracts.mjs
-      - name: The committed artifact matches the source
-        run: git diff --exit-code packages/protocol/src/media-store-artifact.ts
+      - name: The committed artifacts match the sources
+        run: git diff --exit-code packages/protocol/src/media-store-artifact.ts packages/protocol/src/club-forwarder-artifact.ts
+      - run: forge test --root contracts
 
   router:
     name: Instance router artifact

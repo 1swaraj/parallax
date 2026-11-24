@@ -1,5 +1,10 @@
 import { getSponsorshipConfig } from '@/lib/server/sponsorship-config';
-import { feedAbi, MEDIA_CHUNK_BYTES, sponsorRouterAbi } from '@lens-monad/protocol';
+import {
+  feedAbi,
+  MEDIA_CHUNK_BYTES,
+  passportRelayAbi,
+  sponsorRouterAbi,
+} from '@lens-monad/protocol';
 import { NextResponse } from 'next/server';
 import { isAddress, isHex, parseEventLogs, type Address, type Hex } from 'viem';
 import { currentConfig } from '@/lib/server/instance-config';
@@ -17,13 +22,14 @@ import {
   handle,
   HttpError,
 } from '@/lib/server/guard';
+import { passportRevert } from '@/lib/server/member';
 import { getSession } from '@/lib/server/session';
 import {
   assertMediaSponsored,
   assertRelayContent,
   assertSponsoredCall,
   isMediaCall,
-  sponsoredAccount,
+  sponsoredMember,
 } from '@/lib/server/sponsor';
 import { rateLimit } from '@/lib/server/state';
 
@@ -37,9 +43,10 @@ const MAX_MEDIA_CALLDATA_BYTES = MEDIA_CHUNK_BYTES + 256;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Relays a call for the session's Account: SponsorRouter.execute(account, target, data), for the calls the app makes
- * (assertSponsoredCall). The primitives check that the Account itself is the author, follower or blocker, so a
- * session can only act for its own Account.
+ * Relays a call for the session's Account, for the calls the app makes (assertSponsoredCall):
+ * SponsorRouter.execute(account, target, data) for a wallet session, or ClubForwarder.execute(account, target, data)
+ * for a Community Passport session, which the grant registry checks against the member's grant. The primitives check
+ * that the Account itself is the author, follower or blocker, so a session can only act for its own Account.
  */
 export async function POST(request: Request) {
   return handle(async () => {
@@ -55,26 +62,43 @@ export async function POST(request: Request) {
     }
     const kind = assertSponsoredCall(target, data);
     await assertRelayContent(target, data);
-    const account = await sponsoredAccount(await getSession());
+    const call = { target: target as Address, data: data as Hex };
+    const { account, passport } = await sponsoredMember(await getSession(), call);
     // An image costs ~7 text posts (up to two chunks of ~2.9M gas): a daily allowance per Account, in chunks.
     if (kind === 'media-chunk') {
-      await assertMediaSponsored();
+      // A Passport member's grant already said whether images are in (sponsoredMember).
+      if (!passport) await assertMediaSponsored();
       await rateLimit(`media:${account}`, numberEnv('SPONSOR_MEDIA_CHUNKS_PER_DAY', 20), DAY_MS);
     }
-    const { hash, blockNumber, logs } = await sendAsRelayer(
-      {
-        address: (await getSponsorshipConfig()).sponsorRouter,
-        abi: sponsorRouterAbi,
-        functionName: 'execute',
-        args: [account, target as Address, data as Hex],
-      },
-      account,
+    const maxGas =
       kind === 'media-chunk'
         ? maxGasPerMediaChunk()
         : kind === 'image-post'
           ? maxGasPerImagePost()
-          : maxGasPerTransaction()
-    );
+          : maxGasPerTransaction();
+    const { hash, blockNumber, logs } = passport
+      ? await sendAsRelayer(
+          {
+            address: passport.forwarder,
+            abi: passportRelayAbi,
+            functionName: 'execute',
+            args: [account, call.target, call.data],
+          },
+          account,
+          maxGas
+        ).catch((error) => {
+          throw passportRevert(error) ?? error;
+        })
+      : await sendAsRelayer(
+          {
+            address: (await getSponsorshipConfig()).sponsorRouter,
+            abi: sponsorRouterAbi,
+            functionName: 'execute',
+            args: [account, call.target, call.data],
+          },
+          account,
+          maxGas
+        );
     // The post a createPost made, so the client can link to it without reading the receipt from its own RPC.
     const [created] = parseEventLogs({ abi: feedAbi, eventName: 'Lens_Feed_PostCreated', logs });
     return NextResponse.json({

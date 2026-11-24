@@ -1,5 +1,6 @@
 packages/protocol/src/abis/
 packages/protocol/src/media-store-artifact.ts
+packages/protocol/src/club-forwarder-artifact.ts
 packages/protocol/deployments/
 apps/indexer/ponder-env.d.ts
 apps/web/next-env.d.ts

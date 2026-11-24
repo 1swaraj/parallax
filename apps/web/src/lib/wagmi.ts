@@ -58,8 +58,9 @@ export function createWagmiConfig(runtime: PublicConfig) {
     chains: [runtimeChain],
     connectors: [
       injected(),
-      // Passkey accounts, in browsers with WebAuthn, unless NEXT_PUBLIC_PASSKEYS is false.
-      ...(process.env.NEXT_PUBLIC_PASSKEYS !== 'false' && typeof PublicKeyCredential === 'function'
+      // Passkey accounts, in browsers with WebAuthn, when NEXT_PUBLIC_PASSKEYS is true. Off by default: a passkey
+      // belongs to one domain, so each community's own domain would give the same person another account.
+      ...(process.env.NEXT_PUBLIC_PASSKEYS === 'true' && typeof PublicKeyCredential === 'function'
         ? passkeyConnectors()
         : []),
       ...walletConnectConnector(runtime),

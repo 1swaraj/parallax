@@ -6,6 +6,7 @@ export const SECRET_ENV = {
   relayerPrivateKeys: ['RELAYER_PRIVATE_KEYS', 'RELAYER_PRIVATE_KEY'],
   walletConnectProjectId: ['NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID'],
   captchaSecret: ['CAPTCHA_SECRET'],
+  passportClientSecret: ['PASSPORT_CLIENT_SECRET'],
 } as const;
 export type SecretName = keyof typeof SECRET_ENV;
 

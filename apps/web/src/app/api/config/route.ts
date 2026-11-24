@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { publicConfig } from '@/lib/instance-schema';
 import { getInstanceConfig } from '@/lib/server/instance-config';
 import { getSecret } from '@/lib/server/secrets';
+import { passportSettings } from '@/lib/server/passport';
 import { handle } from '@/lib/server/guard';
 export const dynamic = 'force-dynamic';
 export async function GET() {
@@ -16,7 +17,8 @@ export async function GET() {
           config.userEmailEnabled &&
           !!config.appUrl &&
           !!config.emailFrom &&
-          !!(await getSecret('resendApiKey'))
+          !!(await getSecret('resendApiKey')),
+        !!(await passportSettings())
       ),
       { headers: { 'cache-control': 'no-store' } }
     );
