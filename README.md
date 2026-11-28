@@ -182,6 +182,44 @@ Without `DATABASE_URL`, likes live in the web server's memory and go away when i
 To sign in, use a browser wallet with the local network added: RPC `http://127.0.0.1:8545`, chain 31337. Any address
 works, it needs no MON: signing up and posting are sponsored.
 
+### With Docker
+
+`compose.yaml` runs the same stack in containers, with nothing to install but Docker: the chain, the indexer, Postgres
+and the app as a managed instance (`/setup` and `/admin`), with this repository mounted so edits reload. The first
+build fetches `lens-monad-protocol`, which is private, so it needs a GitHub token that can read it. `gh auth token`
+gives yours, unless `GH_TOKEN` is set (Conductor sets one that can't read it): `env -u GH_TOKEN` skips it.
+
+```sh
+GITHUB_TOKEN=$(env -u GH_TOKEN gh auth token) docker compose up --build   # first time
+docker compose up                                                         # later
+docker compose down -v                                                    # start over: a new chain, database and indexer
+```
+
+Each checkout gets its own containers and volumes (the project is named after its directory), but they share ports:
+run one at a time.
+
+- The first start deploys Lens, `MediaStore` and the seed data (`docker/chain.sh`), and saves the chain in a volume.
+  Later starts load it, so the chain, the app's database and the indexer stay in step. The image builds Lens at the
+  revision above. If it deploys to other addresses than `packages/protocol/deployments/31337.json`, the chain stops
+  rather than change the address book.
+- Then open `http://localhost:3000/setup` and claim the instance with the one-time token the app printed when it set up
+  the database: `docker compose logs web | grep 'setup token'`. If that log is gone,
+  `docker compose exec web bash -c 'INSTANCE_SECRET=$(cat /secrets/instance-secret) pnpm admin:reset-owner'` prints a
+  new one. Once setup is done, `docker compose exec web pnpm seed:likes` adds the likes.
+- In setup, leave the relayer keys empty. On chain 31337 the app pays with the anvil account the local router
+  allowlists, and a stored key would replace it.
+- This is for local use: the ports listen on 127.0.0.1 only. `INSTANCE_SECRET` is generated on the first start and kept
+  in a volume with the database. `HEALTH_TOKEN` is `local-docker-health-token` and `CRON_SECRET` is
+  `local-docker-cron-secret`. Postgres is on port 5433, with user, password and database `parallax`. A host
+  `apps/web/.env.local` is read too, except for the chain, relayer and Passport settings, which compose blanks.
+
+**Community Passport.** `docker compose --profile passport up` adds the Passport at `http://localhost:4000`, from a
+pinned commit with `docker/passport-onboarding.patch` (the username at sign-up, not in the Passport's repository yet).
+Its first start deploys the grant registry and this app's ClubForwarder, registers the app, and prints the five values
+for Admin → Community Passport. `docker compose logs passport` shows them again, and the sign-in codes. Browse at
+`localhost`, not `127.0.0.1`: the redirect URI registered with the Passport is
+`http://localhost:3000/api/auth/passport/callback`.
+
 ## Tests
 
 ```sh

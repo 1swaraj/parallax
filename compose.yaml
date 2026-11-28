@@ -1,0 +1,170 @@
+# The whole stack on one machine: a local Monad node with Lens deployed and seeded, the indexer, Postgres and the web
+# app as a managed instance, with this repository mounted so edits reload. Community Passport too, with
+# `--profile passport`. See "With Docker" in the README.
+#
+#   GITHUB_TOKEN=$(env -u GH_TOKEN gh auth token) docker compose up --build   # first time: fetches lens-monad-protocol
+#   docker compose up                                                         # later: the chain, database and indexer are kept
+#   docker compose down -v                                                    # start over
+#
+# The project, and so its volumes, is named after this directory: each checkout or worktree gets its own.
+# Local only: the ports listen on 127.0.0.1 alone, and CRON_SECRET and HEALTH_TOKEN below are fixed, public values.
+
+x-dev: &dev
+  build: { context: docker, target: dev }
+  # Every service shares one network namespace, so localhost is the same everywhere: the browser and the web server
+  # both reach the Passport at http://localhost:4000, which its sign-in needs.
+  network_mode: service:net
+  working_dir: /app
+  init: true
+  # The store sits in the node_modules volume, so pnpm can hard-link from it, for `docker compose exec` installs too.
+  environment: &pnpm
+    npm_config_store_dir: /app/node_modules/.pnpm-store
+
+services:
+  # Holds the shared network namespace and its ports, so that restarting any other service keeps them.
+  net:
+    image: busybox:1.37
+    command: tail -f /dev/null
+    init: true
+    ports:
+      - 127.0.0.1:3000:3000 # web
+      - 127.0.0.1:4000:4000 # Community Passport
+      - 127.0.0.1:8545:8545 # chain
+      - 127.0.0.1:42069:42069 # indexer
+      - 127.0.0.1:5433:5432 # Postgres (5433, to leave a local Postgres alone)
+
+  deps:
+    <<: *dev
+    command: pnpm install --frozen-lockfile
+    environment:
+      <<: *pnpm
+      CI: 'true'
+    # The repository, with Linux node_modules in volumes: the host's are built for macOS.
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - web_node_modules:/app/apps/web/node_modules
+      - indexer_node_modules:/app/apps/indexer/node_modules
+      - protocol_node_modules:/app/packages/protocol/node_modules
+
+  postgres:
+    image: postgres:17
+    network_mode: service:net
+    environment:
+      POSTGRES_USER: parallax
+      POSTGRES_PASSWORD: parallax
+      POSTGRES_DB: parallax
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U parallax -d parallax
+      interval: 2s
+      retries: 30
+
+  chain:
+    <<: *dev
+    build:
+      context: docker
+      target: chain
+      secrets: [github_token]
+    command: bash docker/chain.sh
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - web_node_modules:/app/apps/web/node_modules
+      - indexer_node_modules:/app/apps/indexer/node_modules
+      - protocol_node_modules:/app/packages/protocol/node_modules
+      - chain:/state
+      # A new chain empties the indexer's store, as `pnpm chain` does.
+      - indexer_ponder:/app/apps/indexer/.ponder
+    depends_on:
+      deps: { condition: service_completed_successfully }
+    healthcheck:
+      test: test -f /tmp/chain-ready
+      interval: 3s
+      # The first start deploys and seeds, which takes a few minutes.
+      start_period: 20m
+    # Time for anvil to save the state.
+    stop_grace_period: 30s
+
+  indexer:
+    <<: *dev
+    # Ponder itself, not through pnpm, so it gets Docker's SIGTERM and closes its store cleanly.
+    working_dir: /app/apps/indexer
+    command: node_modules/.bin/ponder dev --disable-ui
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - web_node_modules:/app/apps/web/node_modules
+      - indexer_node_modules:/app/apps/indexer/node_modules
+      - protocol_node_modules:/app/packages/protocol/node_modules
+      - indexer_ponder:/app/apps/indexer/.ponder
+    depends_on:
+      chain: { condition: service_healthy }
+
+  web:
+    <<: *dev
+    # Generates INSTANCE_SECRET once and keeps it in the web_secrets volume.
+    command: bash docker/web.sh
+    environment:
+      <<: *pnpm
+      NEXT_PUBLIC_CHAIN_ID: '31337'
+      DATABASE_URL: postgres://parallax:parallax@127.0.0.1:5432/parallax
+      CRON_SECRET: local-docker-cron-secret
+      HEALTH_TOKEN: local-docker-health-token
+      # Next reads apps/web/.env.local from the mounted repository, but keeps variables already set, even empty: these
+      # stop a host's file from pointing the app at another chain, relayer or Passport.
+      RPC_URL: ''
+      NEXT_PUBLIC_RPC_URL: ''
+      INDEXER_URL: ''
+      SPONSOR_ROUTER_ADDRESS: ''
+      RELAYER_PRIVATE_KEYS: ''
+      RELAYER_PRIVATE_KEY: ''
+      SESSION_SECRET: ''
+      PASSPORT_ISSUER: ''
+      PASSPORT_CLIENT_ID: ''
+      PASSPORT_CLIENT_SECRET: ''
+      PASSPORT_GRANT_REGISTRY: ''
+      CLUB_FORWARDER_ADDRESS: ''
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - web_node_modules:/app/apps/web/node_modules
+      - indexer_node_modules:/app/apps/indexer/node_modules
+      - protocol_node_modules:/app/packages/protocol/node_modules
+      # Apart from the host's .next, which a `pnpm web` on the host may be using.
+      - web_next:/app/apps/web/.next
+      - web_secrets:/secrets
+    depends_on:
+      chain: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+
+  passport:
+    <<: *dev
+    profiles: [passport]
+    build: { context: docker, target: passport }
+    command: bash /app/docker/passport.sh
+    working_dir: /passport
+    volumes:
+      - .:/app:ro
+      - node_modules:/app/node_modules:ro
+      - protocol_node_modules:/app/packages/protocol/node_modules:ro
+      - passport:/state
+    depends_on:
+      chain: { condition: service_healthy }
+
+secrets:
+  github_token:
+    environment: GITHUB_TOKEN
+
+volumes:
+  node_modules:
+  web_node_modules:
+  indexer_node_modules:
+  protocol_node_modules:
+  postgres:
+  chain:
+  indexer_ponder:
+  web_next:
+  web_secrets:
+  passport:
