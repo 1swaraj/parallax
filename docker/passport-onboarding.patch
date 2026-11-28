@@ -1,0 +1,911 @@
+diff --git a/README.md b/README.md
+index 7786dfb..1775bf0 100644
+--- a/README.md
++++ b/README.md
+@@ -7,7 +7,7 @@ Unaudited reference implementation.
+ ## The idea
+ 
+ - A member signs in on the Passport's own page with an emailed code. No wallet, nothing to install.
+-- The first time, the Passport creates a Lens Account for them. That Account is who they are in every club's app.
++- The first time, they pick a username, and the Passport creates a Lens Account with it and their name. That Account is who they are in every club's app. The username is final; the name and bio can be edited on the Passport.
+ - When a member connects a club's app, they approve a **grant**: "this app may post in its feed as me, for 90 days". The grant is recorded in a small contract, the **grant registry**.
+ - The club's server then posts, follows and so on with its own key. The Passport is not in that path.
+ - A member can disconnect any app, and can move their Account to a passkey only they hold, using [Mera](https://github.com/category-labs/mera).
+@@ -114,7 +114,7 @@ pnpm demo
+ 
+ That starts the Passport (`http://localhost:4000`) and a pretend club's app, "Queens Book Club" (`http://localhost:5001`). Everything they do lands on the local chain for real. Open the club's app and:
+ 
+-1. **Sign in.** Tap "Sign in with Community Passport". You are sent to the Passport. Type any email address; the 8-digit code is printed in the terminal, on a line starting `[passport] [mail]`. This creates a Lens Account.
++1. **Sign in.** Tap "Sign in with Community Passport". You are sent to the Passport. Type any email address; the 8-digit code is printed in the terminal, on a line starting `[passport] [mail]`. Then pick a username and a name: this creates a Lens Account with them.
+ 2. **Allow.** The Passport shows what the club is asking for: posting in its own feed, plus two optional things you can tick or leave. Tap Allow. You land back at the club, signed in, and the club shows the Lens Account the Passport told it about.
+ 3. **Post.** Write a review and post it. No prompt appears: the club posts in its own feed with its own key, through the grant registry, and shows the post as read back from Lens.
+ 4. **Overreach.** Tap "Try to take over my account". The club tries to make itself a manager of your Account, and the grant registry refuses.
+diff --git a/apps/passport/src/app.ts b/apps/passport/src/app.ts
+index e8732e4..0bfc450 100644
+--- a/apps/passport/src/app.ts
++++ b/apps/passport/src/app.ts
+@@ -22,13 +22,25 @@ import {
+   spendChallenge,
+   startEmailLogin,
+ } from "./auth.ts";
+-import { type Chain, lensAbi } from "./chain.ts";
++import { type Chain, lensAbi, setProfile } from "./chain.ts";
+ import { type Club, acceptedFrom, clubScopes, readGrant } from "./clubs.ts";
+ import type { Config } from "./config.ts";
+-import { type User, now, userByEmail, userById, userByOwner, userByPendingOwner } from "./db.ts";
++import {
++  SIGNUP_TTL,
++  type User,
++  endSignup,
++  now,
++  signupEmail,
++  startSignup,
++  userByEmail,
++  userById,
++  userByOwner,
++  userByPendingOwner,
++} from "./db.ts";
+ import type { KeyStore } from "./keystore.ts";
+ import { createProvider } from "./oidc.ts";
+ import { type MemberFacts, PolicyError, addRegistry, removeRegistry } from "./policy.ts";
++import { type NewProfile, accountMetadataURI, profileFrom, usernameError } from "./profile.ts";
+ import * as views from "./views.ts";
+ 
+ export type Services = {
+@@ -45,6 +57,9 @@ const SIGNATURE_WINDOW = 10n * 60n;
+ /** How long creating a member's Account, or handing one over, may take before another attempt may start. */
+ const WORK_LEASE = 120;
+ 
++/** The username a new member picked can't be had: taken, reserved, or refused by the Namespace's rules. */
++class UsernameUnavailable extends Error {}
++
+ class HttpError extends Error {
+   readonly status: number;
+   constructor(status: number, message: string) {
+@@ -200,29 +215,44 @@ export async function createApp(services: Services): Promise<{ app: express.Expr
+ 
+   // ---------------------------------------------------------------- Creating a member's Account
+ 
+-  type Provisioning = { id: string; owner: Address; startedAt: number };
++  type Provisioning = { id: string; owner: Address; startedAt: number; username: string | null; name: string | null; bio: string | null };
+ 
+   /**
+-   * A first sign-in: a key in the key store, and a Lens Account that key owns, with the registry as manager. What
+-   * is being done is written down before anything is sent, and the key is never thrown away on a failure, so a
+-   * creation cut short leaves something to pick up from and not an Account nobody holds the key to.
++   * A first sign-in: a key in the key store, and a Lens Account that key owns, with the member's username and profile
++   * and the registry as manager. What is being done is written down before anything is sent, and the key is never
++   * thrown away once something may have been sent, so a creation cut short leaves something to pick up from and not
++   * an Account nobody holds the key to. `profile` is what the member picked: an earlier attempt's is used instead.
+    */
+-  async function provision(email: string): Promise<User> {
++  async function provision(email: string, profile?: NewProfile): Promise<User> {
+     const busy = () => new HttpError(409, "Your account is being set up. Try again in a couple of minutes.");
+-    let pending = db.prepare("SELECT user_id AS id, owner, started_at AS startedAt FROM provisioning WHERE email = ?").get(email) as
+-      | Provisioning
+-      | undefined;
++    let pending = db
++      .prepare("SELECT user_id AS id, owner, started_at AS startedAt, username, name, bio FROM provisioning WHERE email = ?")
++      .get(email) as Provisioning | undefined;
+     if (!pending) {
++      if (!profile) throw new HttpError(400, "Pick a username first.");
+       const id = randomId();
+       const owner = await keyStore.create(id);
++      // A taken, reserved or disallowed username fails here, before anything is written down or sent.
++      if (!(await chain.canCreateAccountWithUsername(owner, profile.username, accountMetadataURI(profile)))) {
++        await keyStore.destroy(id);
++        throw new UsernameUnavailable();
++      }
+       try {
+-        db.prepare("INSERT INTO provisioning (email, user_id, owner, started_at) VALUES (?, ?, ?, ?)").run(email, id, owner, now());
++        db.prepare("INSERT INTO provisioning (email, user_id, owner, started_at, username, name, bio) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
++          email,
++          id,
++          owner,
++          now(),
++          profile.username,
++          profile.name || null,
++          profile.bio || null,
++        );
+       } catch {
+         // Another request for the same address got there first. This key was never used for anything.
+         await keyStore.destroy(id);
+         throw busy();
+       }
+-      pending = { id, owner, startedAt: now() };
++      pending = { id, owner, startedAt: now(), username: profile.username, name: profile.name || null, bio: profile.bio || null };
+     } else {
+       // An earlier attempt did not finish. Take it over, unless it may still be running.
+       const claim = db
+@@ -230,17 +260,40 @@ export async function createApp(services: Services): Promise<{ app: express.Expr
+         .run(now(), email, pending.startedAt, now() - WORK_LEASE);
+       if (claim.changes !== 1) throw busy();
+     }
+-    // That earlier attempt may have created the Account without this server hearing back.
+-    const account = (await chain.accountCreatedFor(pending.owner)) ?? (await chain.createAccount(pending.owner));
+-    db.prepare("INSERT INTO users (id, email, account, owner, custody, created_at) VALUES (?, ?, ?, ?, 'passport', ?)").run(
+-      pending.id,
++    // That earlier attempt may have created the Account without this server hearing back. Creations begun before
++    // usernames were picked at sign-up have none, and are finished the way they were begun.
++    const account = pending.username
++      ? await accountWithUsername(email, pending as Provisioning & { username: string })
++      : ((await chain.accountCreatedFor(pending.owner)) ?? (await chain.createAccount(pending.owner)));
++    db.prepare(
++      "INSERT INTO users (id, email, account, owner, custody, username, name, bio, created_at) VALUES (?, ?, ?, ?, 'passport', ?, ?, ?, ?)",
++    ).run(pending.id, email, account, pending.owner, pending.username, pending.name, pending.bio, now());
++    db.prepare("DELETE FROM provisioning WHERE email = ?").run(email);
++    return {
++      id: pending.id,
+       email,
+       account,
+-      pending.owner,
+-      now(),
+-    );
++      owner: pending.owner,
++      custody: "passport",
++      pendingOwner: null,
++      username: pending.username,
++      name: pending.name,
++      bio: pending.bio,
++    };
++  }
++
++  /** The Account an earlier attempt made with the member's username, found by it, or a new one. */
++  async function accountWithUsername(email: string, pending: Provisioning & { username: string }): Promise<Address> {
++    const existing = await chain.accountOfUsername(pending.username);
++    if (!existing) {
++      const profile = { name: pending.name ?? "", bio: pending.bio ?? "" };
++      return chain.createAccountWithUsername(pending.owner, pending.username, accountMetadataURI(profile));
++    }
++    if (isAddressEqual(await chain.ownerOf(existing), pending.owner)) return existing;
++    // Someone else took the username between the check and the creation. The key owns nothing: start over.
+     db.prepare("DELETE FROM provisioning WHERE email = ?").run(email);
+-    return { id: pending.id, email, account, owner: pending.owner, custody: "passport", pendingOwner: null };
++    await keyStore.destroy(pending.id);
++    throw new UsernameUnavailable();
+   }
+ 
+   function clubOf(clientId: unknown): Club {
+@@ -308,13 +361,44 @@ export async function createApp(services: Services): Promise<{ app: express.Expr
+     }
+     setCookie(res, "pp_login", "", 0);
+ 
+-    const user = await settled(userByEmail(db, email) ?? (await provision(email)));
++    const found = userByEmail(db, email);
++    if (!found && !db.prepare("SELECT 1 FROM provisioning WHERE email = ?").get(email)) {
++      // A new member: their Account is made once they pick the username it will have, which is final.
++      const ticket = randomId();
++      startSignup(db, ticket, email);
++      setCookie(res, "pp_signup", ticket, SIGNUP_TTL);
++      return void res.send(views.profilePage(returnTo));
++    }
++    // A member, or a new one whose Account was being made when an earlier attempt stopped: it is finished first.
++    const user = await settled(found ?? (await provision(email)));
+     // Once a member holds their own key, an inbox is not enough to sign in as them.
+     if (user.custody === "self") return void res.send(views.passkeyRequiredPage(returnTo));
+     signIn(res, user);
+     res.redirect(303, returnTo);
+   });
+ 
++  /** A new member's username, name and bio: their Account is made with them, in one transaction. */
++  app.post("/signup", form, async (req, res) => {
++    const returnTo = safeReturn(req.body.return);
++    const ticket = parseCookies(req.headers.cookie).pp_signup ?? "";
++    const email = signupEmail(db, ticket);
++    if (!email) return void res.status(401).send(views.loginPage(returnTo, "That took too long. Sign in again."));
++    const profile = profileFrom(req.body);
++    const problem = usernameError(profile.username);
++    if (problem) return void res.status(400).send(views.profilePage(returnTo, profile, problem));
++    let user: User;
++    try {
++      user = await settled(userByEmail(db, email) ?? (await provision(email, profile)));
++    } catch (error) {
++      if (!(error instanceof UsernameUnavailable)) throw error;
++      return void res.status(409).send(views.profilePage(returnTo, profile, "That username is taken or can't be used. Try another."));
++    }
++    endSignup(db, ticket);
++    setCookie(res, "pp_signup", "", 0);
++    signIn(res, user);
++    res.redirect(303, returnTo);
++  });
++
+   app.get("/passkey/challenge", (_req, res) => {
+     const challenge = issueChallenge(db);
+     setCookie(res, "pp_challenge", challenge.id, challenge.maxAge);
+@@ -451,6 +535,19 @@ export async function createApp(services: Services): Promise<{ app: express.Expr
+     res.send(views.accountPage(current.user, connections, await chain.isRegistryManager(account)));
+   });
+ 
++  /** Edits the member's name and bio, in every app at once. Their username was picked at sign-up and stays. */
++  app.post("/account/profile", form, async (req, res) => {
++    const current = await memberOf(req.headers.cookie);
++    if (!current) return void res.redirect(303, "/login?return=/account");
++    const { user, session } = current;
++    if (user.custody !== "passport") throw new HttpError(400, "Your passkey holds this account: edit its profile from an app it signs in to.");
++    const { name, bio } = profileFrom(req.body);
++    const data = setProfile(accountMetadataURI({ name, bio }));
++    await keyStore.sendTransaction(user.id, { to: user.account, data }, await memberFacts(user, session));
++    db.prepare("UPDATE users SET name = ?, bio = ? WHERE id = ?").run(name || null, bio || null, user.id);
++    res.redirect(303, "/account");
++  });
++
+   /** The key whose grant a request is about. Any key: an app need not be registered to be disconnected. */
+   function granteeOf(value: unknown): Address {
+     if (typeof value !== "string" || !isAddress(value)) throw new HttpError(400, "Unknown app.");
+diff --git a/apps/passport/src/chain.ts b/apps/passport/src/chain.ts
+index 2041312..14834f2 100644
+--- a/apps/passport/src/chain.ts
++++ b/apps/passport/src/chain.ts
+@@ -1,13 +1,17 @@
+ import { type Scope, grantRegistryAbi, hashScopes } from "@community-passport/grants";
+ import {
+   type Address,
++  BaseError,
++  ContractFunctionRevertedError,
+   type Hex,
+   type LocalAccount,
+   createPublicClient,
+   createWalletClient,
+   defineChain,
++  encodeFunctionData,
+   getAddress,
+   http,
++  isAddressEqual,
+   parseAbi,
+   parseAbiItem,
+   parseEventLogs,
+@@ -20,6 +24,14 @@ export const lensAbi = parseAbi([
+   "struct AccountManagerPermissions { bool canExecuteTransactions; bool canTransferTokens; bool canTransferNative; bool canSetMetadataURI; }",
+   "struct SourceStamp { address source; address originalMsgSender; address validator; uint256 nonce; uint256 deadline; bytes signature; }",
+   "struct KeyValue { bytes32 key; bytes value; }",
++  "struct RuleProcessingParams { address ruleAddress; bytes32 configSalt; KeyValue[] ruleParams; }",
++  "struct CreateAccountParams { string metadataURI; address owner; address[] accountManagers; AccountManagerPermissions[] accountManagersPermissions; SourceStamp accountCreationSourceStamp; KeyValue[] accountExtraData; }",
++  "struct CreateUsernameParams { string username; KeyValue[] createUsernameCustomParams; RuleProcessingParams[] createUsernameRuleProcessingParams; KeyValue[] assignUsernameCustomParams; RuleProcessingParams[] assignRuleProcessingParams; KeyValue[] usernameExtraData; }",
++  "function createAccountWithUsernameFree(address namespacePrimitiveAddress, CreateAccountParams accountParams, CreateUsernameParams usernameParams) returns (address)",
++  "function accountOf(string username) view returns (address)",
++  "error DoesNotExist()",
++  // The one-argument overload is a stub that reverts (NotImplemented): the stamp says which app's metadata it is.
++  "function setMetadataURI(string metadataURI, SourceStamp sourceStamp)",
+   "function deployAccount(address owner, string metadataURI, address[] accountManagers, AccountManagerPermissions[] accountManagersPermissions, SourceStamp sourceStamp, KeyValue[] extraData) returns (address)",
+   "event Lens_Account_Created(address indexed account, address indexed owner, string metadataURI, address[] accountManagers, AccountManagerPermissions[] accountManagersPermissions, address indexed source, KeyValue[] extraData)",
+   "function owner() view returns (address)",
+@@ -42,6 +54,13 @@ const REGISTRY_PERMISSIONS = {
+   canSetMetadataURI: false,
+ } as const;
+ 
++/**
++ * The transaction that sets an Account's profile: its default metadata URI, for every app, which is what an empty
++ * source stamp means. Only its owner can send it.
++ */
++export const setProfile = (metadataURI: string): Hex =>
++  encodeFunctionData({ abi: lensAbi, functionName: "setMetadataURI", args: [metadataURI, NO_SOURCE] });
++
+ export type SignedGrant = {
+   account: Address;
+   grantee: Address;
+@@ -68,6 +87,45 @@ export function createChain(config: Config) {
+   const transport = http(config.rpcUrl);
+   const publicClient = createPublicClient({ chain, transport });
+   const relayer = privateKeyToAccount(config.relayerKey);
++
++  /** The Account `username` belongs to in Lens's global Namespace, if anyone's. */
++  async function accountOfUsername(username: string): Promise<Address | undefined> {
++    try {
++      const account = await publicClient.readContract({ address: config.namespace, abi: lensAbi, functionName: "accountOf", args: [username] });
++      return isAddressEqual(account, ZERO) ? undefined : account;
++    } catch (error) {
++      // The Namespace refuses to look up a username nobody has made, rather than answer with nobody.
++      const reverted = error instanceof BaseError ? error.walk((cause) => cause instanceof ContractFunctionRevertedError) : null;
++      if (reverted instanceof ContractFunctionRevertedError && reverted.data?.errorName === "DoesNotExist") return undefined;
++      throw error;
++    }
++  }
++
++  const accountWithUsername = (owner: Address, username: string, metadataURI: string) =>
++    ({
++      address: config.lensFactory,
++      abi: lensAbi,
++      functionName: "createAccountWithUsernameFree",
++      args: [
++        config.namespace,
++        {
++          metadataURI,
++          owner,
++          accountManagers: [config.grantRegistry],
++          accountManagersPermissions: [REGISTRY_PERMISSIONS],
++          accountCreationSourceStamp: NO_SOURCE,
++          accountExtraData: [],
++        },
++        {
++          username,
++          createUsernameCustomParams: [],
++          createUsernameRuleProcessingParams: [],
++          assignUsernameCustomParams: [],
++          assignRuleProcessingParams: [],
++          usernameExtraData: [],
++        },
++      ],
++    }) as const;
+   const relayerClient = createWalletClient({ chain, transport, account: relayer });
+   const registry = { address: config.grantRegistry, abi: grantRegistryAbi } as const;
+ 
+@@ -130,6 +188,33 @@ export function createChain(config: Config) {
+       return logs.at(-1)?.args.account;
+     },
+ 
++    /**
++     * Has Lens's factory make `owner` an Account with `username` in the global Namespace and the given profile,
++     * with the registry as its one manager: the factory makes the Account, assigns it the username, then hands it
++     * to `owner`. One transaction, paid by the relayer.
++     */
++    async createAccountWithUsername(owner: Address, username: string, metadataURI: string): Promise<Address> {
++      return inTurn(async () => {
++        const receipt = await mined(await relayerClient.writeContract(accountWithUsername(owner, username, metadataURI)));
++        // The factory makes the Account for itself first, so it is found by the factory's event, not by `owner`.
++        const logs = receipt.logs.filter((log) => isAddressEqual(log.address, config.accountFactory));
++        const [created] = parseEventLogs({ abi: lensAbi, eventName: "Lens_Account_Created", logs });
++        if (!created) throw new Error("the account factory did not report a new Account");
++        return created.args.account;
++      });
++    },
++
++    /** Checks that the factory would make that Account now: the username is free, allowed and not reserved. */
++    async canCreateAccountWithUsername(owner: Address, username: string, metadataURI: string): Promise<boolean> {
++      if (await accountOfUsername(username)) return false;
++      return publicClient.simulateContract({ ...accountWithUsername(owner, username, metadataURI), account: relayer }).then(
++        () => true,
++        () => false,
++      );
++    },
++
++    accountOfUsername,
++
+     async isRegistryManager(account: Address): Promise<boolean> {
+       return publicClient.readContract({ address: account, abi: lensAbi, functionName: "isAccountManager", args: [config.grantRegistry] });
+     },
+diff --git a/apps/passport/src/config.ts b/apps/passport/src/config.ts
+index 0c4f55c..37ee23d 100644
+--- a/apps/passport/src/config.ts
++++ b/apps/passport/src/config.ts
+@@ -12,6 +12,10 @@ export type Config = {
+   rpcUrl: string;
+   grantRegistry: Address;
+   accountFactory: Address;
++  /** Lens's factory, which makes an Account with a username in one transaction. */
++  lensFactory: Address;
++  /** Lens's global Namespace, where members' usernames live. */
++  namespace: Address;
+   /** The contracts a grant may name: the Lens feeds, graphs and so on. Never a token. */
+   scopeTargets: Address[];
+   /** Pays the gas for creating Accounts and for submitting grants and revocations. Holds no user's rights. */
+@@ -56,6 +60,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, root: string =
+     accountFactory: getAddress(
+       String(env.PASSPORT_ACCOUNT_FACTORY ?? local.accountFactory ?? required(env, "PASSPORT_ACCOUNT_FACTORY")),
+     ),
++    lensFactory: getAddress(String(env.PASSPORT_LENS_FACTORY ?? local.lensFactory ?? required(env, "PASSPORT_LENS_FACTORY"))),
++    namespace: getAddress(String(env.PASSPORT_NAMESPACE ?? local.namespace ?? required(env, "PASSPORT_NAMESPACE"))),
+     scopeTargets: scopeTargets.split(",").map((target) => getAddress(target.trim())),
+     relayerKey,
+     keyStoreSecret: required(env, "PASSPORT_KEYSTORE_SECRET"),
+diff --git a/apps/passport/src/db.ts b/apps/passport/src/db.ts
+index 5ddab87..735c6dc 100644
+--- a/apps/passport/src/db.ts
++++ b/apps/passport/src/db.ts
+@@ -16,6 +16,10 @@ export type User = {
+   custody: Custody;
+   /** The member's own key, while a handover to it is under way. */
+   pendingOwner: Address | null;
++  /** Their username in Lens's global Namespace, chosen when the Account was made. Null for Accounts made before. */
++  username: string | null;
++  name: string | null;
++  bio: string | null;
+ };
+ 
+ const SCHEMA = `
+@@ -28,6 +32,9 @@ CREATE TABLE IF NOT EXISTS users (
+   pending_owner TEXT,
+   -- Set while a handover is running, so that two cannot run at once.
+   handover_at INTEGER,
++  username TEXT,
++  name TEXT,
++  bio TEXT,
+   created_at INTEGER NOT NULL
+ );
+ -- A member whose key exists but whose Account is not recorded yet. Written before the Account is created, so that
+@@ -36,7 +43,10 @@ CREATE TABLE IF NOT EXISTS provisioning (
+   email TEXT PRIMARY KEY,
+   user_id TEXT NOT NULL,
+   owner TEXT NOT NULL,
+-  started_at INTEGER NOT NULL
++  started_at INTEGER NOT NULL,
++  username TEXT,
++  name TEXT,
++  bio TEXT
+ );
+ -- The development key store. A key vendor replaces this table.
+ CREATE TABLE IF NOT EXISTS keys (
+@@ -75,6 +85,12 @@ CREATE TABLE IF NOT EXISTS oidc (
+   uid TEXT,
+   PRIMARY KEY (model, id)
+ );
++-- A verified email on its way to becoming an account: between the code and the profile the member picks.
++CREATE TABLE IF NOT EXISTS signups (
++  id TEXT PRIMARY KEY,
++  email TEXT NOT NULL,
++  expires_at INTEGER NOT NULL
++);
+ CREATE TABLE IF NOT EXISTS settings (
+   key TEXT PRIMARY KEY,
+   value TEXT NOT NULL
+@@ -86,6 +102,18 @@ export function openDb(path: string): DatabaseSync {
+   const db = new DatabaseSync(path);
+   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+   db.exec(SCHEMA);
++  // Databases made before profiles were chosen at sign-up get the columns too.
++  for (const [table, column] of [
++    ["users", "username"],
++    ["users", "name"],
++    ["users", "bio"],
++    ["provisioning", "username"],
++    ["provisioning", "name"],
++    ["provisioning", "bio"],
++  ]) {
++    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
++    if (!columns.some((existing) => existing.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
++  }
+   purgeExpired(db);
+   return db;
+ }
+@@ -97,6 +125,25 @@ export function purgeExpired(db: DatabaseSync): void {
+   db.prepare("DELETE FROM challenges WHERE expires_at <= ?").run(time);
+   db.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(time);
+   db.prepare("DELETE FROM oidc WHERE expires_at <= ?").run(time);
++  db.prepare("DELETE FROM signups WHERE expires_at <= ?").run(time);
++}
++
++/** How long a member has, once their code is right, to pick a username for their new Account. */
++export const SIGNUP_TTL = 30 * 60;
++
++/** Records that `email` was just proven, for the profile step that makes its Account. */
++export function startSignup(db: DatabaseSync, id: string, email: string): void {
++  db.prepare("INSERT INTO signups (id, email, expires_at) VALUES (?, ?, ?)").run(id, email, now() + SIGNUP_TTL);
++}
++
++/** The email a sign-up ticket proves, while it's good. */
++export function signupEmail(db: DatabaseSync, id: string): string | undefined {
++  const row = db.prepare("SELECT email FROM signups WHERE id = ? AND expires_at > ?").get(id, now()) as { email: string } | undefined;
++  return row?.email;
++}
++
++export function endSignup(db: DatabaseSync, id: string): void {
++  db.prepare("DELETE FROM signups WHERE id = ?").run(id);
+ }
+ 
+ /** Unix seconds. */
+@@ -113,7 +160,7 @@ export function setting(db: DatabaseSync, key: string, create: () => string): st
+   return value;
+ }
+ 
+-const USER_COLUMNS = "id, email, account, owner, custody, pending_owner AS pendingOwner";
++const USER_COLUMNS = "id, email, account, owner, custody, pending_owner AS pendingOwner, username, name, bio";
+ 
+ function oneUser(db: DatabaseSync, column: "id" | "email" | "account" | "owner" | "pending_owner", value: string) {
+   return db.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE ${column} = ?`).get(value) as User | undefined;
+diff --git a/apps/passport/src/policy.ts b/apps/passport/src/policy.ts
+index 581b099..deb5a9c 100644
+--- a/apps/passport/src/policy.ts
++++ b/apps/passport/src/policy.ts
+@@ -1,5 +1,5 @@
+ import { GRANT_TYPES, REVOKE_ALL_TYPES, REVOKE_TYPES, type Scope } from "@community-passport/grants";
+-import { type Address, type Hex, encodeFunctionData, isAddressEqual, parseAbi, toFunctionSelector } from "viem";
++import { type Address, type Hex, decodeFunctionData, encodeFunctionData, isAddressEqual, parseAbi, toFunctionSelector, zeroAddress } from "viem";
+ 
+ /**
+  * What a key the Passport holds for a member is allowed to sign. This is the rule a key vendor's policy engine
+@@ -10,6 +10,7 @@ import { type Address, type Hex, encodeFunctionData, isAddressEqual, parseAbi, t
+  *   Allow                ending one grant, or all of them
+  *   Allow                removing the registry from the Account, and adding it back with no more than the
+  *                        right to pass calls on
++ *   Allow                setting the Account's profile (its name and bio, as its default metadata URI)
+  *   Allow, fresh login   handing the Account, or its proxy admin, to a new owner
+  *   Deny                 everything else
+  *
+@@ -54,6 +55,8 @@ export type MemberFacts = {
+ export class PolicyError extends Error {}
+ 
+ const accountAbi = parseAbi([
++  "struct SourceStamp { address source; address originalMsgSender; address validator; uint256 nonce; uint256 deadline; bytes signature; }",
++  "function setMetadataURI(string metadataURI, SourceStamp sourceStamp)",
+   "struct AccountManagerPermissions { bool canExecuteTransactions; bool canTransferTokens; bool canTransferNative; bool canSetMetadataURI; }",
+   "function addAccountManager(address accountManager, AccountManagerPermissions permissions)",
+   "function removeAccountManager(address accountManager)",
+@@ -69,6 +72,19 @@ export const addRegistry = (registry: Address): Hex =>
+   encodeFunctionData({ abi: accountAbi, functionName: "addAccountManager", args: [registry, PASS_CALLS_ON_ONLY] });
+ 
+ const TRANSFER_OWNERSHIP = toFunctionSelector("transferOwnership(address)");
++const SET_METADATA_URI = toFunctionSelector("setMetadataURI(string,(address,address,address,uint256,uint256,bytes))");
++
++/** Whether `data` sets the Account's default profile: setMetadataURI with no app's source stamp, so it calls out to nothing. */
++function setsDefaultProfile(data: Hex): boolean {
++  if (!data.startsWith(SET_METADATA_URI)) return false;
++  try {
++    const { args } = decodeFunctionData({ abi: accountAbi, data });
++    const stamp = args[1] as { source: Address };
++    return isAddressEqual(stamp.source, zeroAddress);
++  } catch {
++    return false;
++  }
++}
+ /** How far the chain's clock may run ahead of this one before a grant looks too long. */
+ const CLOCK_SLACK = 3600;
+ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+@@ -106,6 +122,8 @@ export function checkPolicy(request: SignRequest, settings: PolicySettings, memb
+   const data = request.data.toLowerCase();
+   // Taking the registry off the Account, or putting it back exactly as it was, moves nothing to anyone.
+   if (toAccount && (data === removeRegistry(settings.grantRegistry) || data === addRegistry(settings.grantRegistry))) return;
++  // Setting the Account's profile moves nothing to anyone either.
++  if (toAccount && setsDefaultProfile(data as Hex)) return;
+   // The selector, then one 32-byte address.
+   if (data.length !== 2 + 8 + 64 || !data.startsWith(TRANSFER_OWNERSHIP)) {
+     throw new PolicyError("transaction is not one the key may send");
+diff --git a/apps/passport/src/profile.ts b/apps/passport/src/profile.ts
+new file mode 100644
+index 0000000..5a5a8e1
+--- /dev/null
++++ b/apps/passport/src/profile.ts
+@@ -0,0 +1,48 @@
++import { randomUUID } from "node:crypto";
++
++/**
++ * What a member picks when their Account is made: the username people find them by, in Lens's global Namespace, and
++ * the name and bio every community app shows. It's one identity across apps, so it's chosen here, once, and a grant
++ * can't change it. The username is final: only the name and bio can be edited afterwards.
++ */
++export type NewProfile = { username: string; name: string; bio: string };
++
++/**
++ * The launch Namespace's rules for people who aren't its admins (lens-monad-protocol, script/NamespaceDeployer.sol):
++ * a lowercase letter or a digit first, then also `_` and `-`, and at least 4 characters. Reserved usernames can only
++ * be checked on the chain. Lens community apps check the same rules, e.g. Parallax's usernameError.
++ */
++export const MIN_USERNAME_LENGTH = 4;
++const MAX_USERNAME_LENGTH = 64;
++const MAX_NAME_LENGTH = 100;
++const MAX_BIO_LENGTH = 300;
++
++export function usernameError(username: string): string | undefined {
++  if (username.length < MIN_USERNAME_LENGTH) return `Use at least ${MIN_USERNAME_LENGTH} characters.`;
++  if (username.length > MAX_USERNAME_LENGTH) return `Use at most ${MAX_USERNAME_LENGTH} characters.`;
++  if (!/^[a-z0-9]/.test(username)) return "Start with a lowercase letter or a digit.";
++  if (!/^[a-z0-9_-]+$/.test(username)) return "Use only lowercase letters, digits, _ and -.";
++  return undefined;
++}
++
++/** A profile from a form: the username lowercased and trimmed, the name and bio trimmed and cut to length. */
++export function profileFrom(body: Record<string, unknown>): NewProfile {
++  const text = (value: unknown, max: number) => String(value ?? "").trim().slice(0, max);
++  return {
++    username: text(body.username, MAX_USERNAME_LENGTH + 1).toLowerCase(),
++    name: text(body.name, MAX_NAME_LENGTH),
++    bio: text(body.bio, MAX_BIO_LENGTH),
++  };
++}
++
++/**
++ * The Account's metadata: Lens account metadata 1.0.0, inline as a base64 `data:` URI, as community apps on Monad
++ * store it (there's no storage service), so every app reads the name and bio without fetching anything.
++ */
++export function accountMetadataURI(profile: { name: string; bio: string }): string {
++  const lens: Record<string, string> = { id: randomUUID() };
++  if (profile.name) lens.name = profile.name;
++  if (profile.bio) lens.bio = profile.bio;
++  const json = JSON.stringify({ $schema: "https://json-schemas.lens.dev/account/1.0.0.json", lens });
++  return `data:application/json;base64,${Buffer.from(json).toString("base64")}`;
++}
+diff --git a/apps/passport/src/views.ts b/apps/passport/src/views.ts
+index a153876..eff384d 100644
+--- a/apps/passport/src/views.ts
++++ b/apps/passport/src/views.ts
+@@ -1,6 +1,7 @@
+ import type { Club } from "./clubs.ts";
+ import { clubDomain, optionalLabels, requiredLabels } from "./clubs.ts";
+ import type { User } from "./db.ts";
++import { MIN_USERNAME_LENGTH, type NewProfile } from "./profile.ts";
+ 
+ export function escapeHtml(value: string): string {
+   return value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
+@@ -21,7 +22,9 @@ li.ok, li.no, li.choice { justify-content: flex-start; }
+ li.choice label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+ input[type="checkbox"] { width: 18px; height: 18px; padding: 0; margin: 3px 0 0; flex: none; accent-color: var(--ok); }
+ form { display: grid; gap: 10px; margin: 0; } .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+-input, button { font: inherit; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
++input, textarea, button { font: inherit; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
++textarea { resize: vertical; min-height: 72px; } label.field { display: grid; gap: 6px; font-size: 14px; }
++.handle { display: flex; align-items: center; gap: 6px; } .handle input { flex: 1; min-width: 0; }
+ button { cursor: pointer; font-weight: 600; } button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+ button.link { border: 0; background: none; color: var(--no); padding: 0; }
+ .error { color: var(--no); } code { font-size: 13px; overflow-wrap: anywhere; }
+@@ -78,6 +81,29 @@ ${error(message)}
+   );
+ }
+ 
++/**
++ * A new member's first and only chance to pick their username: it's what people find them by in every community
++ * app, and it can't be changed later. The name and bio can.
++ */
++export function profilePage(returnTo: string, values: Partial<NewProfile> = {}, message?: string): string {
++  return page(
++    "Create your account",
++    `<h1>Create your account</h1>
++<p class="muted">One account for every community app. Pick the username people will find you by.</p>
++${error(message)}
++<form method="post" action="/signup">
++  <input type="hidden" name="return" value="${escapeHtml(returnTo)}">
++  <label class="field">Username
++    <span class="handle">@<input name="username" value="${escapeHtml(values.username ?? "")}" required minlength="${MIN_USERNAME_LENGTH}" maxlength="64" pattern="[a-z0-9][a-z0-9_-]*" autocapitalize="none" autocomplete="username" spellcheck="false" autofocus></span>
++    <span class="muted">At least ${MIN_USERNAME_LENGTH} characters: lowercase letters, digits, _ and -. It can't be changed later.</span>
++  </label>
++  <label class="field">Name <input name="name" value="${escapeHtml(values.name ?? "")}" maxlength="100" autocomplete="name"></label>
++  <label class="field">Bio <textarea name="bio" maxlength="300">${escapeHtml(values.bio ?? "")}</textarea></label>
++  <button class="primary">Create account</button>
++</form>`,
++  );
++}
++
+ /** Shown when an email code is right but the account's owner is the member's own passkey. */
+ export function passkeyRequiredPage(returnTo: string): string {
+   return page(
+@@ -170,9 +196,20 @@ export function accountPage(user: User, connections: ConnectedApp[], registryOn:
+     : `<form method="post" action="/account/disconnect-all"><button>Turn off app access</button></form>`;
+   return page(
+     "Your account",
+-    `<h1>Your account</h1>
+-<p class="muted">${escapeHtml(user.email)}<br><code>${escapeHtml(user.account)}</code></p>
++    `<h1>${user.username ? `@${escapeHtml(user.username)}` : "Your account"}</h1>
++<p class="muted">${user.name ? `${escapeHtml(user.name)}<br>` : ""}${escapeHtml(user.email)}<br><code>${escapeHtml(user.account)}</code></p>
+ ${error(message)}
++${
++  selfCustody
++    ? ""
++    : `<p>Profile</p>
++<form method="post" action="/account/profile">
++  <label class="field">Name <input name="name" value="${escapeHtml(user.name ?? "")}" maxlength="100" autocomplete="name"></label>
++  <label class="field">Bio <textarea name="bio" maxlength="300">${escapeHtml(user.bio ?? "")}</textarea></label>
++  <button>Save profile</button>
++  <p class="muted">Every community app shows it.${user.username ? " Your username stays as you picked it." : ""}</p>
++</form>`
++}
+ <p>Connected apps</p>
+ <ul>${rows.join("\n") || `<li><span class="muted">${none}</span></li>`}</ul>
+ ${rows.length || (registryOn && !selfCustody) ? turnOff : ""}
+diff --git a/apps/passport/test/policy.test.ts b/apps/passport/test/policy.test.ts
+index c107be4..7e81315 100644
+--- a/apps/passport/test/policy.test.ts
++++ b/apps/passport/test/policy.test.ts
+@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
+ import { test } from "node:test";
+ import { grantTypedData, revokeAllTypedData, revokeTypedData } from "@community-passport/grants";
+ import { encodeFunctionData, parseAbi } from "viem";
++import { setProfile } from "../src/chain.ts";
+ import { type MemberFacts, PolicyError, type PolicySettings, type SignRequest, addRegistry, checkPolicy, removeRegistry } from "../src/policy.ts";
+ 
+ const registry = "0x00000000000000000000000000000000000000aa";
+@@ -89,6 +90,24 @@ test("handing over the Account or its proxy admin is allowed, on a fresh sign-in
+   denied({ kind: "transaction", to: account, data: handOver }, { ...member, freshLogin: false });
+ });
+ 
++test("setting the member's own profile is allowed, without a fresh sign-in", () => {
++  const profile = setProfile("data:application/json;base64,e30=");
++  allowed({ kind: "transaction", to: account, data: profile }, { ...member, freshLogin: false });
++  // Not on anyone else's Account, nor on the proxy admin.
++  denied({ kind: "transaction", to: stranger, data: profile });
++  denied({ kind: "transaction", to: proxyAdmin, data: profile });
++  // Nor with an app's source stamp, which would have the Account call that app's contract.
++  const stamped = encodeFunctionData({
++    abi: parseAbi([
++      "struct SourceStamp { address source; address originalMsgSender; address validator; uint256 nonce; uint256 deadline; bytes signature; }",
++      "function setMetadataURI(string metadataURI, SourceStamp sourceStamp)",
++    ]),
++    functionName: "setMetadataURI",
++    args: ["data:application/json;base64,e30=", { source: stranger, originalMsgSender: account, validator: account, nonce: 1n, deadline: 2n, signature: "0x" }],
++  });
++  denied({ kind: "transaction", to: account, data: stamped });
++});
++
+ test("every other transaction is denied", () => {
+   denied({ kind: "transaction", to: stranger, data: handOver });
+   denied({ kind: "transaction", to: account, data: "0x" });
+diff --git a/apps/passport/test/profile.test.ts b/apps/passport/test/profile.test.ts
+new file mode 100644
+index 0000000..6602bf0
+--- /dev/null
++++ b/apps/passport/test/profile.test.ts
+@@ -0,0 +1,27 @@
++import assert from "node:assert/strict";
++import { test } from "node:test";
++import { accountMetadataURI, profileFrom, usernameError } from "../src/profile.ts";
++
++test("usernames follow the launch Namespace's rules", () => {
++  for (const ok of ["noor", "ada_lovelace", "4ever", "run-club-pune"]) assert.equal(usernameError(ok), undefined, ok);
++  for (const bad of ["ada", "_ada", "-ada", "Ada", "ada lovelace", "ada.eth", "ádâ1"]) assert.ok(usernameError(bad), bad);
++});
++
++test("a profile form is trimmed, its username lowercased, and kept to length", () => {
++  assert.deepEqual(profileFrom({ username: "  Noor_Run ", name: " Noor ", bio: "x".repeat(400) }), {
++    username: "noor_run",
++    name: "Noor",
++    bio: "x".repeat(300),
++  });
++  assert.deepEqual(profileFrom({}), { username: "", name: "", bio: "" });
++});
++
++test("the profile is Lens account metadata, inline, as community apps read it", () => {
++  const uri = accountMetadataURI({ name: "Noor", bio: "" });
++  assert.match(uri, /^data:application\/json;base64,/);
++  const json = JSON.parse(Buffer.from(uri.split(",")[1] as string, "base64").toString());
++  assert.equal(json.$schema, "https://json-schemas.lens.dev/account/1.0.0.json");
++  assert.equal(json.lens.name, "Noor");
++  assert.equal(json.lens.bio, undefined, "an empty bio is left out");
++  assert.match(json.lens.id, /^[0-9a-f-]{36}$/);
++});
+diff --git a/docs/design.md b/docs/design.md
+index ebddbf5..011b5ba 100644
+--- a/docs/design.md
++++ b/docs/design.md
+@@ -48,7 +48,9 @@ A **relayer** is a key that submits other people's signed messages and pays the
+ 
+ ## The flows
+ 
+-**First sign-in.** The club sends the member's browser to the Passport. The member types their email, then the 8-digit code. The Passport makes a key in the key store and creates a Lens Account owned by that key, with the registry as its only manager. One transaction, paid by the relayer.
++**First sign-in.** The club sends the member's browser to the Passport. The member types their email, then the 8-digit code, then picks a username and a name. The username is what people find them by in every app, so it is picked once, here, and can't be changed. The Passport makes a key in the key store and has Lens's factory create a Lens Account owned by that key, with the username in Lens's global Namespace, the name and bio as its profile, and the registry as its only manager. One transaction, paid by the relayer.
++
++**Editing the profile.** On their account page the member edits their name and bio, and every app shows the change. The key store sends it from the member's key, the one thing besides grants it may sign for them that touches the Account itself. Apps can't: a grant only passes calls on, and setting an Account's profile takes its owner.
+ 
+ **Connecting an app.** The Passport shows the club's domain and what it is asking for, in plain words. The member taps Allow. The key store signs a grant, the relayer submits it, and the member is sent back to the club with a one-time code. The club's server swaps the code for an ID token, a signed statement from the Passport that says "this is Account 0x…". Nothing else is in it: not the email, not a name.
+ 
+diff --git a/docs/passport.md b/docs/passport.md
+index 2fc7e75..8f75ec3 100644
+--- a/docs/passport.md
++++ b/docs/passport.md
+@@ -70,6 +70,7 @@ Each member's Account is owned by one key. Until the member takes it over, the P
+ | Sign a grant, for the grant registry, on this chain, for this member's own Account, to a registered app's key, for functions that app is registered for, for no longer than that app's grants last | Allow |
+ | Sign the end of one grant, or of all of them | Allow |
+ | Take the registry off this member's Account, or put it back with the right to pass calls on and no other | Allow |
++| Set this member's Account's profile (`setMetadataURI` with no app's source stamp) | Allow |
+ | Send "transfer ownership" to this member's Account or to its proxy admin, when the member signed in within the last ten minutes | Allow |
+ | Anything else | Refuse |
+ 
+diff --git a/e2e/flow.test.ts b/e2e/flow.test.ts
+index 0d15a04..f434169 100644
+--- a/e2e/flow.test.ts
++++ b/e2e/flow.test.ts
+@@ -83,6 +83,7 @@ describe("a club signs a member in through the Passport and acts for them on Len
+   /** A second address the club registered, on another domain. */
+   const otherRedirectUri = "http://localhost:5002/callback";
+   const email = `maya-${Date.now()}@example.com`;
++  const username = `maya-${Date.now()}`;
+   const outbox = new Outbox();
+ 
+   let local: {
+@@ -90,6 +91,8 @@ describe("a club signs a member in through the Passport and acts for them on Len
+     rpcUrl: string;
+     grantRegistry: Address;
+     accountFactory: Address;
++    lensFactory: Address;
++    namespace: Address;
+     /** The feed every app shares. */
+     feed: Address;
+     graph: Address;
+@@ -124,6 +127,8 @@ describe("a club signs a member in through the Passport and acts for them on Len
+       rpcUrl: local.rpcUrl,
+       grantRegistry: local.grantRegistry,
+       accountFactory: local.accountFactory,
++      lensFactory: local.lensFactory,
++      namespace: local.namespace,
+       scopeTargets: [local.feed, local.graph, local.clubFeed],
+       relayerKey: RELAYER_KEY,
+       keyStoreSecret: "e2e",
+@@ -167,8 +172,8 @@ describe("a club signs a member in through the Passport and acts for them on Len
+     };
+     const flakyChain: Chain = {
+       ...chain,
+-      async createAccount(owner) {
+-        const created = await chain.createAccount(owner);
++      async createAccountWithUsername(owner, username, metadataURI) {
++        const created = await chain.createAccountWithUsername(owner, username, metadataURI);
+         if (breakNextCreation) {
+           breakNextCreation = false;
+           throw new Error("simulated: the connection dropped after the Account was created");
+@@ -307,8 +312,15 @@ describe("a club signs a member in through the Passport and acts for them on Len
+     const wrong = await browser.postForm("/login/code", { code: code === "00000000" ? "11111111" : "00000000", return: returnTo });
+     assert.equal(wrong.status, 401);
+ 
+-    // The right one signs in, creates the member's Lens Account, and lands on the consent screen.
+-    const consent = await browser.postForm("/login/code", { code: code as string, return: returnTo });
++    // The right one asks a new member for the username their Account will have, and nothing else is made yet.
++    const profile = await browser.postForm("/login/code", { code: code as string, return: returnTo });
++    assert.match(profile.body, /Create your account/);
++    assert.equal(db.prepare("SELECT 1 FROM users WHERE email = ?").get(email), undefined, "no Account before a username");
++    const taken = await browser.postForm("/signup", { username: "ab", return: returnTo });
++    assert.equal(taken.status, 400, "a username the Namespace's rules refuse is refused here");
++
++    // With one, the member's Lens Account is made with it and their profile, and they land on the consent screen.
++    const consent = await browser.postForm("/signup", { username, name: "Maya", bio: "Reads on Sundays", return: returnTo });
+     assert.equal(consent.status, 200);
+     assert.match(consent.body, /127\.0\.0\.1:5001/, "the club's domain is shown");
+     assert.match(consent.body, /Post as you/);
+@@ -379,33 +391,31 @@ describe("a club signs a member in through the Passport and acts for them on Len
+     const logged = t.mock.method(console, "error", () => {});
+     const other = new Browser(config.issuer);
+     const otherEmail = `noor-${Date.now()}@example.com`;
++    const otherUsername = `noor-${Date.now()}`;
+     const signIn = async () => {
+       await other.postForm("/login/email", { email: otherEmail, return: "/account" });
+-      return other.postForm("/login/code", { code: outbox.codes.get(otherEmail) as string, return: "/account" });
++      const page = await other.postForm("/login/code", { code: outbox.codes.get(otherEmail) as string, return: "/account" });
++      if (!/Create your account/.test(page.body)) return page;
++      return other.postForm("/signup", { username: otherUsername, name: "Noor", return: "/account" });
+     };
+ 
+     breakNextCreation = true;
+     assert.equal((await signIn()).status, 500);
+     assert.match(String(logged.mock.calls[0]?.arguments[0]), /simulated/);
+     const pending = db.prepare("SELECT user_id AS id, owner FROM provisioning WHERE email = ?").get(otherEmail) as { id: string; owner: Address };
+-    const created = await chain.accountCreatedFor(pending.owner);
+-    assert.ok(created, "the Account exists on the chain");
++    const created = await chain.accountOfUsername(otherUsername);
++    assert.ok(created, "the Account exists on the chain, with its username");
++    assert.ok(isAddressEqual(await chain.ownerOf(created), pending.owner), "owned by the key the Passport kept");
+     assert.ok(db.prepare("SELECT 1 FROM keys WHERE user_id = ?").get(pending.id), "and the key that owns it was kept");
+ 
+     // Straight away, another attempt is told to wait: the first may still be running.
+     assert.equal((await signIn()).status, 409);
+ 
+-    // Once the first is clearly over, signing in picks the same Account up.
++    // Once the first is clearly over, signing in picks the same Account up: the username can only be had once.
+     db.prepare("UPDATE provisioning SET started_at = started_at - 600 WHERE email = ?").run(otherEmail);
+     assert.match((await signIn()).body, new RegExp(created, "i"));
+-    const creations = await chain.publicClient.getContractEvents({
+-      address: local.accountFactory,
+-      abi: lensAbi,
+-      eventName: "Lens_Account_Created",
+-      args: { owner: pending.owner },
+-      fromBlock: "earliest",
+-    });
+-    assert.equal(creations.length, 1, "one Account, not two");
++    const user = db.prepare("SELECT account, username FROM users WHERE email = ?").get(otherEmail) as { account: Address; username: string };
++    assert.ok(isAddressEqual(user.account, created) && user.username === otherUsername, "one Account, not two");
+   });
+ 
+   test("signing in again asks the member for nothing", async () => {
+@@ -415,6 +425,17 @@ describe("a club signs a member in through the Passport and acts for them on Len
+     assert.equal(await redeem(result.leftFor, request), account);
+   });
+ 
++  test("the member edits their name and bio on their account page, and keeps their username", async () => {
++    const page = await browser.get("/account");
++    assert.match(page.body, new RegExp(`<h1>@${username}</h1>`), "the account page is theirs, by username");
++    assert.doesNotMatch(page.body, /name="username"/, "a username is picked once, at sign-up");
++    const saved = await browser.postForm("/account/profile", { name: "Maya R.", bio: "Reads on Saturdays now", username: "someone-else" });
++    assert.equal(saved.status, 200);
++    const row = db.prepare("SELECT username, name, bio FROM users WHERE email = ?").get(email) as { username: string; name: string; bio: string };
++    assert.deepEqual({ ...row }, { username, name: "Maya R.", bio: "Reads on Saturdays now" });
++    assert.ok(isAddressEqual((await chain.accountOfUsername(username)) as Address, account), "the username still names their Account");
++  });
++
+   test("after signing out, the Passport asks who is there before it answers a club", async () => {
+     await browser.postForm("/logout");
+     const request = signInRequest();
+diff --git a/scripts/dev-chain.sh b/scripts/dev-chain.sh
+index e778759..e2002a4 100755
+--- a/scripts/dev-chain.sh
++++ b/scripts/dev-chain.sh
+@@ -71,6 +71,8 @@ jq --arg registry "$REGISTRY" --arg rpc "$RPC" --arg clubFeed "$CLUB_FEED" '{
+   rpcUrl: $rpc,
+   grantRegistry: $registry,
+   accountFactory: .AccountFactory.address,
++  lensFactory: .LensFactory.address,
++  namespace: .LensGlobalNamespace.address,
+   feed: .LensGlobalFeed.address,
+   graph: .LensGlobalGraph.address,
+   clubFeed: $clubFeed

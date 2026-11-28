@@ -1,0 +1,152 @@
+# The whole stack on one machine: a local Monad node with Lens deployed and seeded, the indexer, Postgres and the web
+# app as a managed instance, with this repository mounted so edits reload. Community Passport too, with
+# `--profile passport`. See "Run it with Docker" in the README.
+#
+#   GITHUB_TOKEN=$(gh auth token) docker compose up --build   # first time: the chain image fetches lens-monad-protocol
+#   docker compose up                                         # later: the chain, database and indexer are kept
+#   docker compose down -v                                    # start over
+#
+# Local only. Every secret below is a fixed, public value, and the ports listen on 127.0.0.1 alone.
+
+name: parallax
+
+x-dev: &dev
+  image: parallax-dev
+  build: { context: docker, target: dev }
+  # Every service shares one network namespace, so localhost is the same everywhere: the browser and the web server
+  # both reach the Passport at http://localhost:4000, which its sign-in needs.
+  network_mode: service:net
+  working_dir: /app
+  init: true
+
+services:
+  # Holds the shared network namespace and its ports, so that restarting any other service keeps them.
+  net:
+    image: busybox:1.37
+    command: tail -f /dev/null
+    init: true
+    ports:
+      - 127.0.0.1:3000:3000 # web
+      - 127.0.0.1:4000:4000 # Community Passport
+      - 127.0.0.1:8545:8545 # chain
+      - 127.0.0.1:42069:42069 # indexer
+      - 127.0.0.1:5433:5432 # Postgres (5433, to leave a local Postgres alone)
+
+  deps:
+    <<: *dev
+    # The store sits in the node_modules volume, so pnpm can hard-link from it.
+    command: pnpm install --frozen-lockfile --store-dir /app/node_modules/.pnpm-store
+    environment: { CI: 'true' }
+    # The repository, with Linux node_modules in volumes: the host's are built for macOS.
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - web_node_modules:/app/apps/web/node_modules
+      - indexer_node_modules:/app/apps/indexer/node_modules
+      - protocol_node_modules:/app/packages/protocol/node_modules
+
+  postgres:
+    image: postgres:17
+    network_mode: service:net
+    environment:
+      POSTGRES_USER: parallax
+      POSTGRES_PASSWORD: parallax
+      POSTGRES_DB: parallax
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U parallax -d parallax
+      interval: 2s
+      retries: 30
+
+  chain:
+    <<: *dev
+    image: parallax-chain
+    build:
+      context: docker
+      target: chain
+      secrets: [github_token]
+    command: bash docker/chain.sh
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - web_node_modules:/app/apps/web/node_modules
+      - indexer_node_modules:/app/apps/indexer/node_modules
+      - protocol_node_modules:/app/packages/protocol/node_modules
+      - chain:/state
+      # A new chain empties the indexer's store, as `pnpm chain` does.
+      - indexer_ponder:/app/apps/indexer/.ponder
+    depends_on:
+      deps: { condition: service_completed_successfully }
+    healthcheck:
+      test: test -f /tmp/chain-ready
+      interval: 3s
+      # The first start deploys and seeds, which takes a few minutes.
+      start_period: 20m
+    # Time for anvil to save the state.
+    stop_grace_period: 30s
+
+  indexer:
+    <<: *dev
+    command: pnpm --filter @lens-monad/indexer exec ponder dev --disable-ui
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - web_node_modules:/app/apps/web/node_modules
+      - indexer_node_modules:/app/apps/indexer/node_modules
+      - protocol_node_modules:/app/packages/protocol/node_modules
+      - indexer_ponder:/app/apps/indexer/.ponder
+    depends_on:
+      chain: { condition: service_healthy }
+
+  web:
+    <<: *dev
+    command: pnpm --filter @lens-monad/web exec next dev --port 3000 --hostname 0.0.0.0
+    environment:
+      NEXT_PUBLIC_CHAIN_ID: '31337'
+      DATABASE_URL: postgres://parallax:parallax@127.0.0.1:5432/parallax
+      INSTANCE_SECRET: local-docker-instance-secret-0123456789abcdef
+      SETUP_TOKEN: local-docker-setup-token
+      CRON_SECRET: local-docker-cron-secret
+      HEALTH_TOKEN: local-docker-health-token
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - web_node_modules:/app/apps/web/node_modules
+      - indexer_node_modules:/app/apps/indexer/node_modules
+      - protocol_node_modules:/app/packages/protocol/node_modules
+      # Apart from the host's .next, which a `pnpm web` on the host may be using.
+      - web_next:/app/apps/web/.next
+    depends_on:
+      chain: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+
+  passport:
+    <<: *dev
+    profiles: [passport]
+    image: parallax-passport
+    build: { context: docker, target: passport }
+    command: bash /app/docker/passport.sh
+    working_dir: /passport
+    volumes:
+      - .:/app:ro
+      - node_modules:/app/node_modules:ro
+      - protocol_node_modules:/app/packages/protocol/node_modules:ro
+      - passport:/state
+    depends_on:
+      chain: { condition: service_healthy }
+
+secrets:
+  github_token:
+    environment: GITHUB_TOKEN
+
+volumes:
+  node_modules:
+  web_node_modules:
+  indexer_node_modules:
+  protocol_node_modules:
+  postgres:
+  chain:
+  indexer_ponder:
+  web_next:
+  passport:
