@@ -17,6 +17,10 @@ DEPLOYER=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 STATE=$STATE_DIR/chain.json
 # Written once the first start has deployed and seeded everything: a state saved before that is incomplete.
 DEPLOYED=$STATE_DIR/deployed
+# The address book the chain was deployed for, to compare with the repository's on later starts.
+BOOK=packages/protocol/deployments/31337.json
+SAVED_BOOK=$STATE_DIR/31337.json
+RESET='Run `docker compose down -v` to start over with a new chain.'
 # The service's healthcheck: the chain is deployed or loaded, and serving.
 READY=${READY_FILE:-/tmp/chain-ready}
 
@@ -32,10 +36,22 @@ start() {
   # Stop the node with this script, failed or stopped: Docker sends SIGTERM, and anvil saves the state on its way out.
   trap 'kill -TERM $ANVIL_PID 2>/dev/null; wait $ANVIL_PID' EXIT
   trap 'exit 143' TERM INT
-  until cast chain-id --rpc-url "$RPC" >/dev/null 2>&1; do sleep 0.2; done
+  until cast chain-id --rpc-url "$RPC" >/dev/null 2>&1; do
+    # Otherwise a node that can't start (a state it can't read) leaves this waiting until the healthcheck gives up.
+    kill -0 "$ANVIL_PID" 2>/dev/null || {
+      echo "anvil exited before serving. $RESET" >&2
+      exit 1
+    }
+    sleep 0.2
+  done
 }
 
 if [ -f "$DEPLOYED" ] && [ -f "$STATE" ]; then
+  # The repository moved to another Lens deployment since (a pull, another branch): its addresses aren't on this chain.
+  if ! cmp -s "$SAVED_BOOK" "$BOOK"; then
+    echo "$BOOK changed since this chain was deployed. $RESET" >&2
+    exit 1
+  fi
   start --load-state "$STATE"
   # A loaded node's clock resumes from when it was saved: bring it to the wall clock, or new posts look old.
   now=$(date +%s)
@@ -45,7 +61,7 @@ if [ -f "$DEPLOYED" ] && [ -f "$STATE" ]; then
   fi
   echo "Loaded the chain from $STATE, at block $(cast block-number --rpc-url "$RPC")."
 else
-  rm -f "$STATE" "$DEPLOYED"
+  rm -f "$STATE" "$DEPLOYED" "$SAVED_BOOK"
   # The clock starts 5 days back, so the seed can spread its posts over the last few days; seeding (or SEED=0) then
   # brings it back to the wall clock.
   start --timestamp $(($(date +%s) - 5 * 86400))
@@ -63,11 +79,12 @@ else
   )
   # The app reads the committed address book. dev-chain.sh copies the new one over it; here a difference means the
   # image's Lens isn't the revision this repository was built against, so stop rather than change tracked files.
-  if ! cmp -s "$LENS/deployments/31337.json" packages/protocol/deployments/31337.json; then
-    echo "Lens deployed to different addresses than packages/protocol/deployments/31337.json." >&2
+  if ! cmp -s "$LENS/deployments/31337.json" "$BOOK"; then
+    echo "Lens deployed to different addresses than $BOOK." >&2
     echo "Rebuild the chain image at the revision in docker/Dockerfile (LENS_REVISION)." >&2
     exit 1
   fi
+  cp "$BOOK" "$SAVED_BOOK"
   node --import tsx scripts/deploy-media-store.ts
   # What the indexer stored is from another chain: start over.
   rm -rf "${PONDER_DIR:?}"/*
